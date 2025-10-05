@@ -311,6 +311,7 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
                   'content': '',
                   'roomId': widget.contenidoId,
                   'mediaId': mediaId,
+                  'type': 'audio',
                 });
               }
             } catch (e) {
@@ -343,6 +344,7 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
               'content': '',
               'roomId': widget.contenidoId,
               'mediaId': mediaId,
+              'type': 'audio',
             });
           }
 
@@ -531,7 +533,7 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
         GestureDetector(
           onTap: _mostrarEmojis,
           child: Padding(
-            padding: const EdgeInsets.only(right: 4),
+            padding: const EdgeInsets.only(right: 6),
             child: Icon(
               Icons.emoji_emotions_outlined,
               color: Colors.grey.shade500,
@@ -544,7 +546,7 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
         GestureDetector(
           onTap: _mostrarStickers,
           child: Padding(
-            padding: const EdgeInsets.only(right: 8),
+            padding: const EdgeInsets.only(right: 10),
             child: Icon(
               Icons.face_retouching_natural,
               color: Colors.grey.shade500,

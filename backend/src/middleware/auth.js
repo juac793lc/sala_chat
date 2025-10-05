@@ -36,10 +36,10 @@ const checkRoomPermission = (requiredRole = 'member') => {
   };
 };
 
-// Generar JWT token
-const generateToken = (userId) => {
+// Generar JWT token con nombre de usuario
+const generateToken = (userId, username) => {
   return jwt.sign(
-    { userId },
+    { userId, username },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
   );

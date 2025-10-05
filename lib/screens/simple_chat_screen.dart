@@ -292,18 +292,18 @@ class _SimpleChatScreenState extends State<SimpleChatScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (!isMe)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Text(
-                        message.senderName,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey.shade600,
-                        ),
+                  // Mostrar nombre del usuario siempre (tanto propios como ajenos)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      message.senderName,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: isMe ? Colors.white70 : Colors.grey.shade600,
                       ),
                     ),
+                  ),
                   Text(
                     message.content,
                     style: TextStyle(

@@ -36,7 +36,12 @@ router.get('/', async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit) || 50, 100);
     const offset = parseInt(req.query.offset) || 0;
     const rows = await sqlite.listMessages(roomId, limit, offset);
-    return res.json({ roomId, count: rows.length, items: rows });
+    // Enriquecer con user_nombre -> username si existe
+    const enriched = rows.map(r => ({
+      ...r,
+      user_nombre: r.user_nombre || r.user_id // fallback
+    }));
+    return res.json({ roomId, count: enriched.length, items: enriched });
   } catch (err) {
     console.error('❌ Error listando mensajes:', err);
     return res.status(500).json({ error: 'Error interno listando mensajes' });

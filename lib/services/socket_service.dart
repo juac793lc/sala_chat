@@ -12,6 +12,7 @@ class SocketService {
   final Set<String> _joinedRooms = {}; // evitar joins duplicados
   final Set<String> _pendingJoin = {}; // joins solicitados esperando confirmación
   bool _eventsRegistrados = false; // asegura que _setupChatEvents solo corre una vez
+  Set<String> _joinedRoomsSnapshotBeforeDisconnect = {}; // snapshot para rejoin
   
   // Callbacks para eventos
   final Map<String, List<Function>> _eventCallbacks = {};
@@ -67,6 +68,8 @@ class SocketService {
         _socket!.onDisconnect((_) {
           _isConnected = false;
           print('❌ Desconectado del servidor');
+          // Guardar snapshot de salas actuales para intentar rejoin al reconectar
+          _joinedRoomsSnapshotBeforeDisconnect = Set.from(_joinedRooms);
           _notifyCallbacks('disconnected', null);
         });
 
@@ -80,6 +83,27 @@ class SocketService {
           print('❌ Error de autenticación: $data');
           _notifyCallbacks('auth_error', data);
           disconnect();
+        });
+
+        // Al conectar nuevamente, re-join a las salas que teníamos
+        on('connected', (_) {
+          print('✨ Socket reconectado, verificando salas...');
+          final toRejoin = Set<String>.from(_joinedRooms);
+          toRejoin.addAll(_joinedRoomsSnapshotBeforeDisconnect);
+          
+          if (toRejoin.isNotEmpty) {
+            print('🔁 Reuniéndose automáticamente a salas: ${toRejoin.join(', ')}');
+            for (final room in toRejoin) {
+              // Reset flags para permitir rejoin
+              _joinedRooms.remove(room);
+              _pendingJoin.remove(room);
+              // Delay para evitar spam al servidor
+              Future.delayed(Duration(milliseconds: 100 * toRejoin.toList().indexOf(room)), () {
+                joinRoomForce(room, force: true);
+              });
+            }
+            _joinedRoomsSnapshotBeforeDisconnect.clear();
+          }
         });
 
         // Eventos del chat
@@ -133,8 +157,8 @@ class SocketService {
 
     // Confirmación de unirse a sala
     _socket!.on('joined_room', (data) {
-      print('✅ Te uniste a sala: ${data['roomName'] ?? data['roomId']}');
-      final room = data['roomName'] ?? data['roomId'];
+      final room = data['roomId'] ?? data['roomName'];
+      print('✅ Te uniste a sala (tracking): $room');
       if (room is String) {
         _pendingJoin.remove(room);
         _joinedRooms.add(room);
@@ -239,34 +263,53 @@ class SocketService {
 
   // Unirse a sala
   void joinRoom(String roomId) {
+    joinRoomForce(roomId, force: false);
+  }
+
+  // Permite forzar join aunque pensemos que ya estamos unidos (para pantallas que se reconstruyen)
+  void joinRoomForce(String roomId, {bool force = true}) {
     if (!_isConnected || _socket == null) {
       print('❌ No conectado al servidor');
       return;
     }
-    if (_joinedRooms.contains(roomId)) {
-      print('⏭️ Already in room $roomId, skip join');
-      return;
-    }
-    if (_pendingJoin.contains(roomId)) {
-      print('⏳ Join ya pendiente para $roomId');
-      return;
+    if (!force) {
+      if (_joinedRooms.contains(roomId)) {
+        print('⏭️ Already in room $roomId, skip join');
+        return;
+      }
+      if (_pendingJoin.contains(roomId)) {
+        print('⏳ Join ya pendiente para $roomId');
+        return;
+      }
+    } else {
+      // reset flags para permitir rejoin
+      _joinedRooms.remove(roomId);
+      _pendingJoin.remove(roomId);
     }
     _pendingJoin.add(roomId);
+    print(force ? '🔁 Forzando join a $roomId' : '➡️ Join a $roomId');
     _socket!.emit('join_room', {'roomId': roomId});
   }
 
   // Salir de sala
   void leaveRoom(String roomId) {
     if (!_isConnected || _socket == null) return;
-    if (_joinedRooms.contains(roomId) || _pendingJoin.contains(roomId)) {
-      _socket!.emit('leave_room', {'roomId': roomId});
-      _joinedRooms.remove(roomId);
-      _pendingJoin.remove(roomId);
-    }
+    _socket!.emit('leave_room', {'roomId': roomId});
+    _joinedRooms.remove(roomId);
+    _pendingJoin.remove(roomId);
+    print('🚪 Saliendo de sala: $roomId');
   }
 
   bool isInRoom(String roomId) => _joinedRooms.contains(roomId);
   bool isJoining(String roomId) => _pendingJoin.contains(roomId);
+  
+  // Método para asegurar que estamos en la sala (rejoin si es necesario)
+  void ensureInRoom(String roomId) {
+    if (!isInRoom(roomId) && !isJoining(roomId)) {
+      print('🔄 Asegurando suscripción a sala: $roomId');
+      joinRoomForce(roomId, force: true);
+    }
+  }
 
   // Indicador de escritura
   void startTyping(String roomId) {

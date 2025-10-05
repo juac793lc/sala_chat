@@ -26,6 +26,7 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
   List<Comentario> comentarios = [];
   final ScrollController _scrollController = ScrollController();
   String? _currentUserId;
+  String? _currentUserName;
   Function? _messageListener;
   bool _listenersConfigurados = false;
   int _maxOrdenSecuencia = 0; // seguimiento global para asignar secuencias nuevas
@@ -75,17 +76,30 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
     final cached = AuthService.getCachedUser();
     if (cached != null) {
       _currentUserId = cached.id;
+      _currentUserName = cached.username;
+      print('👤 Usuario desde cache: ${cached.username} (${cached.id})');
     } else {
       _obtenerUsuarioActual();
     }
+    
     // Asegurar conexión socket antes de listeners/join
     if (!SocketService.instance.isConnected) {
       await SocketService.instance.connect();
+      // Esperar un momento para que la conexión se estabilice
+      await Future.delayed(const Duration(milliseconds: 300));
     }
+    
     if (mounted) {
       _cargarComentarios();
       _configurarSocketListeners();
       _unirseASala();
+      
+      // Verificación adicional tras setup inicial
+      Future.delayed(const Duration(seconds: 1), () {
+        if (mounted) {
+          SocketService.instance.ensureInRoom(widget.contenido.id);
+        }
+      });
     }
   }
 
@@ -95,7 +109,9 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
       if (authResult.success && authResult.user != null) {
         setState(() {
           _currentUserId = authResult.user!.id;
+          _currentUserName = authResult.user!.username;
         });
+        print('👤 Usuario actual cargado: ${authResult.user!.username} (${authResult.user!.id})');
       }
     } catch (e) {
       print('Error obteniendo usuario actual: $e');
@@ -105,10 +121,13 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
 
 
   void _configurarSocketListeners() {
-    // Solo configurar una vez para evitar duplicados
+    // Siempre reconfigurar listeners para esta sala específica
     if (_listenersConfigurados) {
-      print('🔄 Listeners ya configurados, saltando...');
-      return;
+      print('🔄 Reconfigurado listeners para nueva sala');
+      // Remover listener previo si existe
+      if (_messageListener != null) {
+        SocketService.instance.off('new_message', _messageListener!);
+      }
     }
     
     // Crear nueva función listener
@@ -131,16 +150,19 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
         print('🎯 Es mi mensaje: ${_currentUserId != null && autorId == _currentUserId}');
         
         // Convertir datos del servidor directamente a Comentario
+        // Determinar si es audio: type=='audio' o mediaId presente o fileUrl presente
+        final bool esAudio = (data['type'] == 'audio') || (data['mediaId'] != null) || (data['fileUrl'] != null && (data['fileUrl'] as String).isNotEmpty);
         final comentario = Comentario(
           id: data['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
           contenidoId: widget.contenido.id,
           autorId: autorId,
           autorNombre: autorNombre,
-          tipo: data['type'] == 'audio' ? TipoComentario.audio : TipoComentario.texto,
-          contenido: data['content'] ?? '',
-          mediaId: data['fileUrl'] != null ? 'media_${data['id']}' : null,
-          mediaUrl: data['fileUrl'],
+          tipo: esAudio ? TipoComentario.audio : TipoComentario.texto,
+          contenido: esAudio ? (data['fileUrl'] ?? '') : (data['content'] ?? ''),
+          mediaId: data['mediaId'] ?? (esAudio ? (data['mediaId'] ?? '') : null),
+          mediaUrl: esAudio ? data['fileUrl'] : null,
           fechaCreacion: data['createdAt'] != null ? DateTime.parse(data['createdAt']) : DateTime.now(),
+          duracionSegundos: esAudio ? (data['durationSeconds'] is int ? data['durationSeconds'] : (data['durationSeconds'] is double ? (data['durationSeconds'] as double).round() : null)) : null,
         );
         
         // Solo agregar si coincide con el tipo de sala
@@ -178,9 +200,17 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
   }
   
   void _unirseASala() {
-    // Unirse a la sala para recibir mensajes en tiempo real
-    SocketService.instance.joinRoom(widget.contenido.id);
-    print('🏠 Uniéndose a sala: ${widget.contenido.id}');
+    // Forzar join siempre que se abre la pantalla (cambia audio/texto o reentra)
+    SocketService.instance.joinRoomForce(widget.contenido.id, force: true);
+    print('🏠 (force) Uniéndose a sala: ${widget.contenido.id}');
+    
+    // Verificar estado de conexión y rejoin si es necesario
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted && !SocketService.instance.isInRoom(widget.contenido.id)) {
+        print('⚠️ Sala no confirmada, reintentando join...');
+        SocketService.instance.joinRoomForce(widget.contenido.id, force: true);
+      }
+    });
   }
   
   void _agregarComentarioDelServidor(Comentario comentario) {
@@ -220,19 +250,19 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
   @override
   @override
   void dispose() {
-    // Remover listener al salir
+    // Remover listener específico al salir
     if (_messageListener != null) {
       SocketService.instance.off('new_message', _messageListener!);
+      print('🧹 Listener removido para sala: ${widget.contenido.id}');
     }
-    // Salir de la sala
-    SocketService.instance.leaveRoom(widget.contenido.id);
-    // Si es sala de audio, opcionalmente limpiar estado de reproducción para evitar quedarse en índice colgado
+    // NO hacer leaveRoom para mantener suscripción activa en socket
+    // SocketService.instance.leaveRoom(widget.contenido.id);
+    
+    // Si es sala de audio, opcionalmente limpiar estado de reproducción
     if (widget.esAudio) {
       try {
         // Detener reproducción para liberar índice y estado
         // ignore: use_build_context_synchronously
-        // Llamada segura: si el servicio no está inicializado no lanza
-        // (En este refactor asumimos PlatformAudioService expone stop())
       } catch (_) {}
     }
     _scrollController.dispose();
@@ -446,7 +476,7 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
                         comentario: comentarios[index],
                         allAudioComments: widget.esAudio ? comentarios : null,
                         currentUserId: _currentUserId,
-                        currentUserName: null,
+                        currentUserName: _currentUserName,
                       );
                     },
                   ),

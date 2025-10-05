@@ -74,6 +74,7 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
           _currentUserName = result.user!.username;
           _currentUserAvatar = result.user!.avatar;
         });
+        print('👤 Usuario principal cargado: ${result.user!.username}');
       }
     } catch (e) {
       print('Error cargando usuario: $e');

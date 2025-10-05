@@ -9,7 +9,7 @@ const simpleBD = {
   messages: []
 };
 
-// Autenticar socket - VERSION SUPER SIMPLE
+// Autenticar socket - BUSCAR USUARIO REAL DE LA BD
 const authenticateSocket = async (socket) => {
   try {
     const token = socket.handshake.auth.token;
@@ -20,21 +20,22 @@ const authenticateSocket = async (socket) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    console.log(`✅ Token decodificado para usuario: ${decoded.userId}`);
+    console.log(`✅ Token decodificado para usuario: ${decoded.userId} (${decoded.username})`);
     
-    // Buscar o crear usuario simple
     let user = simpleBD.users.find(u => u.id === decoded.userId);
     if (!user) {
       user = {
         id: decoded.userId,
-        username: `User_${decoded.userId}`,
-        avatar: 'U:#4ECDC4',
+        username: decoded.username || `User_${decoded.userId}`,
+        avatar: `${(decoded.username || 'U').substring(0, 2).toUpperCase()}:#4ECDC4`,
         isOnline: true,
         socketId: socket.id
       };
       simpleBD.users.push(user);
       console.log(`👤 Nuevo usuario creado: ${user.username}`);
     } else {
+      // Actualizar con nombre del token
+      user.username = decoded.username || user.username;
       user.isOnline = true;
       user.socketId = socket.id;
       console.log(`👤 Usuario reconectado: ${user.username}`);
@@ -81,7 +82,7 @@ const handleSocketConnection = async (socket, io) => {
     // Mensaje simple
     socket.on('send_message', (data) => {
       try {
-        const { content, roomId = 'sala-general', mediaId } = data;
+        const { content, roomId = 'sala-general', mediaId, type } = data;
         const messageId = uuidv4();
         const nowIso = new Date().toISOString();
 
@@ -90,6 +91,7 @@ const handleSocketConnection = async (socket, io) => {
           message_id: messageId,
           room_id: roomId,
           user_id: user.id,
+          user_nombre: user.username,
           text: content || '',
           media_id: mediaId || null,
         }).then(() => {
@@ -101,8 +103,10 @@ const handleSocketConnection = async (socket, io) => {
         const message = {
           id: messageId,
           content: content,
-          type: mediaId ? 'media' : 'text',
+          type: mediaId ? 'audio' : (type || 'text'), // estandarizar a 'audio' si trae mediaId
           mediaId: mediaId || null,
+          fileUrl: null, // se completa si es audio
+          durationSeconds: null,
           sender: {
             id: user.id,
             username: user.username,
@@ -111,10 +115,31 @@ const handleSocketConnection = async (socket, io) => {
           roomId: roomId,
           reactions: [],
           readBy: [],
-          isDeleted: false,
+            isDeleted: false,
           createdAt: nowIso,
           updatedAt: nowIso
         };
+
+        // Si es un mensaje con media/audio, intentar enriquecer con datos de la tabla media
+        if (mediaId) {
+          sqlite.getMediaByMediaId(mediaId).then(mediaRow => {
+            if (mediaRow) {
+              // Normalizar tipo: si la media es audio, forzar message.type = 'audio'
+              if (mediaRow.tipo === 'audio') {
+                message.type = 'audio';
+              }
+              message.fileUrl = mediaRow.url || null;
+              message.durationSeconds = mediaRow.duration_seconds || null;
+            } else {
+              console.warn(`⚠️ Media no encontrada todavía (mediaId=${mediaId}) al emitir new_message`);
+            }
+            io.to(roomId).emit('new_message', message);
+          }).catch(err => {
+            console.error('⚠️ Error obteniendo media para mensaje:', err.message);
+            io.to(roomId).emit('new_message', message); // emitir sin enriquecer
+          });
+          return; // evitar doble emisión
+        }
 
         console.log(`📤 ${user.username} (${roomId}): ${content || '[media]'}${mediaId ? ' mediaId=' + mediaId : ''}`);
 

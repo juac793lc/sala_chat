@@ -74,7 +74,7 @@ class HistoryService {
             id: message['message_id'],
             contenidoId: roomId,
             autorId: message['user_id'] ?? 'user_unknown',
-            autorNombre: 'Usuario ${message['user_id'] ?? 'Desconocido'}',
+            autorNombre: (message['user_nombre'] ?? message['username'] ?? message['user_id'] ?? 'Usuario').toString(),
             contenido: message['text'] ?? '',
             fechaCreacion: DateTime.parse(message['created_at']),
             tipo: message['media_id'] != null ? TipoComentario.audio : TipoComentario.texto,

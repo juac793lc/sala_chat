@@ -42,8 +42,8 @@ router.post('/join', async (req, res) => {
       console.log(`👤 Nuevo usuario creado: ${username}`);
     }
 
-    // Generar token
-    const token = generateToken(user.id);
+    // Generar token con username incluido
+    const token = generateToken(user.id, user.username);
 
     res.status(200).json({
       message: `¡Bienvenido${isNewUser ? '' : ' de vuelta'}, ${username}!`,

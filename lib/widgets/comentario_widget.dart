@@ -115,7 +115,11 @@ class _ComentarioWidgetState extends State<ComentarioWidget> {
   Widget _buildAudioPlayer(bool esMiMensaje) {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),
-      width: MediaQuery.of(context).size.width * 0.70,
+      // Usar constraints en lugar de ancho fijo para permitir adaptar contenido
+      constraints: BoxConstraints(
+        maxWidth: MediaQuery.of(context).size.width * 0.80,
+        minWidth: 160,
+      ),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
         color: _isPlaying ? Colors.green.shade50 : Colors.blue.shade50, // Color diferente cuando reproduce
@@ -133,7 +137,42 @@ class _ComentarioWidgetState extends State<ComentarioWidget> {
         ],
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          // Para mensajes de otros: avatar + espacio
+          if (!esMiMensaje) ...[
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: Colors.blueGrey.shade500,
+                  child: Text(
+                    widget.comentario.autorNombre.isNotEmpty ? widget.comentario.autorNombre[0].toUpperCase() : 'U',
+                    style: const TextStyle(fontSize: 13, color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                // Nombre debajo del avatar (compacto)
+                Container(
+                  constraints: const BoxConstraints(maxWidth: 50),
+                  child: Text(
+                    widget.comentario.autorNombre,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: _isPlaying ? Colors.green.shade700 : Colors.blueGrey.shade600,
+                      height: 1.0,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(width: 8),
+          ],
           // Botón play/pause con animación
           GestureDetector(
             onTap: _playPause,
@@ -180,7 +219,24 @@ class _ComentarioWidgetState extends State<ComentarioWidget> {
           // Información del audio
           Expanded(
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Nombre encima de la barra si es mi mensaje (solo ahí, para no duplicar en ajeno)
+                if (esMiMensaje)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        widget.comentario.autorNombre,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: _isPlaying ? Colors.green.shade700 : Colors.blueGrey.shade600,
+                        ),
+                      ),
+                    ),
+                  ),
                 // Barra de progreso con animación
                 Container(
                   height: _isPlaying ? 3 : 2, // Más alta cuando reproduce
@@ -201,22 +257,26 @@ class _ComentarioWidgetState extends State<ComentarioWidget> {
                 
                 // Tiempo
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
                       Icons.audiotrack,
                       size: 10,
                       color: Colors.blue.shade600,
                     ),
-                    AnimatedDefaultTextStyle(
-                      duration: const Duration(milliseconds: 200),
-                      style: TextStyle(
-                        color: _isPlaying ? Colors.green.shade700 : Colors.blue.shade700,
-                        fontSize: _isPlaying ? 10 : 9, // Texto más grande cuando reproduce
-                        fontWeight: _isPlaying ? FontWeight.w600 : FontWeight.w500,
-                      ),
-                      child: Text(
-                        '${_formatDuration(_currentPosition)} / ${_formatDuration(_totalDuration.inMilliseconds > 0 ? _totalDuration : Duration(seconds: widget.comentario.duracionSegundos ?? 0))}',
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: AnimatedDefaultTextStyle(
+                        duration: const Duration(milliseconds: 200),
+                        style: TextStyle(
+                          color: _isPlaying ? Colors.green.shade700 : Colors.blue.shade700,
+                          fontSize: _isPlaying ? 10 : 9, // Texto más grande cuando reproduce
+                          fontWeight: _isPlaying ? FontWeight.w600 : FontWeight.w500,
+                        ),
+                        child: Text(
+                          '${_formatDuration(_currentPosition)} / ${_formatDuration(_totalDuration.inMilliseconds > 0 ? _totalDuration : Duration(seconds: widget.comentario.duracionSegundos ?? 0))}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ),
                   ],
@@ -224,6 +284,38 @@ class _ComentarioWidgetState extends State<ComentarioWidget> {
               ],
             ),
           ),
+          if (esMiMensaje) ...[
+            const SizedBox(width: 8),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: Colors.blue.shade500,
+                  child: Text(
+                    widget.comentario.autorNombre.isNotEmpty ? widget.comentario.autorNombre[0].toUpperCase() : 'T',
+                    style: const TextStyle(fontSize: 13, color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Container(
+                  constraints: const BoxConstraints(maxWidth: 60),
+                  child: Text(
+                    widget.comentario.autorNombre,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                      color: _isPlaying ? Colors.green.shade700 : Colors.blueGrey.shade600,
+                      height: 1.0,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -325,6 +417,18 @@ class _ComentarioWidgetState extends State<ComentarioWidget> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            // Mostrar nombre del usuario siempre (pequeño)
+                            Text(
+                              widget.comentario.autorNombre,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: esMiMensaje 
+                                    ? Colors.white.withOpacity(0.8) 
+                                    : Colors.grey.shade600,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
                             Text(
                               widget.comentario.contenido,
                               style: TextStyle(
