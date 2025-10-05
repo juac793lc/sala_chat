@@ -1,0 +1,1 @@
+// Archivo legacy removido. Mantener para evitar errores de import fantasma si existiera alguno.
