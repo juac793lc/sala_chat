@@ -102,11 +102,13 @@ router.post('/upload', upload.single('file'), (req, res) => {
     const durationSeconds = parseFloat(req.body.durationSeconds) || null;
     const roomId = req.body.roomId || null;
     const userId = req.body.userId || null;
+    const userNombre = req.body.userNombre || req.body.userName || null;
     // Insertar metadata en SQLite
     sqlite.insertMedia({
       media_id,
       room_id: roomId,
       user_id: userId,
+      user_nombre: userNombre,
       tipo: mediaType,
       url: fileUrl,
       mime: req.file.mimetype,
@@ -129,6 +131,7 @@ router.post('/upload', upload.single('file'), (req, res) => {
       mediaType: mediaType,
       roomId: roomId,
       userId: userId,
+      userNombre: userNombre,
       durationSeconds: durationSeconds,
       originalName: req.body.originalName || req.file.originalname
     };

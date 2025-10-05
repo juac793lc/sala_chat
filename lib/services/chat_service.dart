@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'auth_service.dart';
-import 'socket_service.dart';
+import '../models/message_model.dart'; // agregado
 
 class ChatService {
   static const String baseUrl = 'http://localhost:3000/api/chat';

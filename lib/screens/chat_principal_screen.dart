@@ -7,10 +7,16 @@ import '../widgets/input_multimedia_widget.dart';
 import '../widgets/mapa_widget.dart';
 import '../services/socket_service.dart';
 import '../services/auth_service.dart';
+import '../services/media_feed_service.dart'; // nuevo
 import 'sala_comentarios_screen.dart';
 
 class ChatPrincipalScreen extends StatefulWidget {
-  const ChatPrincipalScreen({super.key});
+  final String roomId;
+
+  const ChatPrincipalScreen({
+    super.key,
+    required this.roomId,
+  });
 
   @override
   State<ChatPrincipalScreen> createState() => _ChatPrincipalScreenState();
@@ -20,7 +26,11 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
   bool _mostrarBliz = false;
   String? _currentUserName;
   String? _currentUserAvatar;
-  
+  // Indicador de carga inicial HTTP
+  bool _cargandoInicial = false;
+  // Set para deduplicar IDs provenientes de HTTP + sockets
+  final Set<String> _idsContenido = {};
+
   // Usuarios del proyecto (se actualizan en tiempo real)
   List<Usuario> usuarios = [
     Usuario(id: '1', nombre: 'Tú', conectado: true),
@@ -31,7 +41,29 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
   void initState() {
     super.initState();
     _loadCurrentUser();
+    _cargaInicialFeed();
     _setupSocketConnection();
+  }
+
+  Future<void> _cargaInicialFeed() async {
+    setState(() { _cargandoInicial = true; });
+    try {
+      final lista = await MediaFeedService.instance.obtenerFeedRoom(widget.roomId);
+      if (!mounted) return;
+      // Lista REST viene en orden DESC (más nuevo primero). Insertamos respetando eso.
+      contenidoMultimedia.clear();
+      for (final c in lista) {
+        if (!_idsContenido.contains(c.id)) {
+          _idsContenido.add(c.id);
+          contenidoMultimedia.add(c); // ya está DESC (0 = más nuevo)
+        }
+      }
+    } catch (e) {
+      // Ignoramos error pero mantenemos UI funcional
+      debugPrint('Error carga inicial feed: $e');
+    } finally {
+      if (mounted) setState(() { _cargandoInicial = false; });
+    }
   }
 
   void _loadCurrentUser() async {
@@ -55,7 +87,7 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
     }
 
     // Unirse a la sala del proyecto
-    SocketService.instance.joinRoom('proyecto_x');
+    SocketService.instance.joinRoom(widget.roomId);
 
     // Escuchar usuarios online/offline
     SocketService.instance.on('user_online', (data) {
@@ -77,7 +109,19 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
       }
     });
 
-    // Escuchar historial de contenido al conectarse
+    // Escuchar multimedia compartido (nuevo evento para feed)
+    SocketService.instance.on('multimedia_compartido', (data) {
+      print('🎉 RECIBIDO multimedia_compartido: ${data.toString()}');
+      if (mounted) {
+        print('💫 Procesando multimedia_compartido en UI...');
+        _agregarContenidoDesdeSocket(data);
+        print('✅ Multimedia_compartido procesado');
+      } else {
+        print('❌ Widget no mounted, ignorando multimedia_compartido');
+      }
+    });
+
+    // Escuchar historial de contenido al conectarse (socket). Puede solaparse con HTTP.
     SocketService.instance.on('historial_contenido', (data) {
       if (mounted) {
         _cargarHistorialContenido(data);
@@ -114,9 +158,13 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
   }
 
   void _agregarContenidoDesdeSocket(Map<String, dynamic> data) {
+    print('🔍 _agregarContenidoDesdeSocket llamado con data: $data');
+    
     // Determinar tipo de contenido
     TipoContenido tipo = TipoContenido.imagen;
     final tipoString = data['tipo']?.toString() ?? '';
+    print('🎭 Tipo detectado: $tipoString');
+    
     if (tipoString.contains('audio')) {
       tipo = TipoContenido.audio;
     } else if (tipoString.contains('video')) {
@@ -124,25 +172,34 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
     }
 
     final nuevoContenido = ContenidoMultimedia(
-      id: data['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
-      autorId: data['autorId'] ?? '0',
-      autorNombre: data['autorNombre'] ?? 'Usuario',
+      id: data['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
+      autorId: data['autorId']?.toString() ?? '0',
+      autorNombre: data['autorNombre']?.toString() ?? 'Usuario',
       tipo: tipo,
       url: data['url'] ?? '',
-      fechaCreacion: DateTime.parse(data['fechaCreacion'] ?? DateTime.now().toIso8601String()),
+      fechaCreacion: DateTime.tryParse(data['fechaCreacion'] ?? '') ?? DateTime.now(),
       comentariosTexto: data['comentariosTexto'] ?? 0,
       comentariosAudio: data['comentariosAudio'] ?? 0,
       duracionSegundos: data['duracionSegundos'],
     );
 
+    if (_idsContenido.contains(nuevoContenido.id)) {
+      print('⚠️ Contenido ya existe con ID: ${nuevoContenido.id}');
+      return; // ya existe (probablemente vino por HTTP o historial socket)
+    }
+
+    print('🎯 Agregando nuevo contenido a la UI: ${nuevoContenido.id}');
     setState(() {
+      _idsContenido.add(nuevoContenido.id);
       contenidoMultimedia.insert(0, nuevoContenido);
     });
+    print('✅ Contenido agregado. Total items: ${contenidoMultimedia.length}');
   }
 
   void _cargarHistorialContenido(List<dynamic> historial) {
-    final List<ContenidoMultimedia> contenidoHistorial = historial.map((data) {
-      // Determinar tipo de contenido
+    // Socket puede mandar items quizá ya cargados vía HTTP -> deduplicar
+    bool huboCambio = false;
+    for (final data in historial) {
       TipoContenido tipo = TipoContenido.imagen;
       final tipoString = data['tipo']?.toString() ?? '';
       if (tipoString.contains('audio')) {
@@ -151,26 +208,32 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
         tipo = TipoContenido.video;
       }
 
-      return ContenidoMultimedia(
-        id: data['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
-        autorId: data['autorId'] ?? '0',
-        autorNombre: data['autorNombre'] ?? 'Usuario',
+      final id = data['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString();
+      if (_idsContenido.contains(id)) continue; // saltar duplicado
+
+      final contenido = ContenidoMultimedia(
+        id: id,
+        autorId: data['autorId']?.toString() ?? '0',
+        autorNombre: data['autorNombre']?.toString() ?? 'Usuario',
         tipo: tipo,
         url: data['url'] ?? '',
-        fechaCreacion: DateTime.parse(data['fechaCreacion'] ?? DateTime.now().toIso8601String()),
+        fechaCreacion: DateTime.tryParse(data['fechaCreacion'] ?? '') ?? DateTime.now(),
         comentariosTexto: data['comentariosTexto'] ?? 0,
         comentariosAudio: data['comentariosAudio'] ?? 0,
         duracionSegundos: data['duracionSegundos'],
       );
-    }).toList();
 
-    setState(() {
-      // Reemplazar contenido con el historial del servidor
-      contenidoMultimedia.clear();
-      contenidoMultimedia.addAll(contenidoHistorial);
-    });
-    
-    print('📚 Historial cargado: ${contenidoHistorial.length} elementos');
+      _idsContenido.add(id);
+      contenidoMultimedia.add(contenido); // historial socket asumimos ya ordenado
+      huboCambio = true;
+    }
+
+    if (huboCambio && mounted) {
+      setState(() {});
+    }
+    if (huboCambio) {
+      debugPrint('📚 Historial socket añadió nuevos (no duplicados). Total: ${contenidoMultimedia.length}');
+    }
   }
 
   List<ContenidoMultimedia> contenidoMultimedia = [];
@@ -188,22 +251,30 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
   }
 
   void _agregarContenido(ContenidoMultimedia nuevoContenido) {
+    if (_idsContenido.contains(nuevoContenido.id)) return; // seguridad
     setState(() {
+      _idsContenido.add(nuevoContenido.id);
       contenidoMultimedia.insert(0, nuevoContenido);
     });
 
     // Enviar por socket para que otros usuarios lo vean
-    SocketService.instance.socket?.emit('nuevo_contenido', {
-      'id': nuevoContenido.id,
-      'autorId': nuevoContenido.autorId,
-      'autorNombre': nuevoContenido.autorNombre,
-      'tipo': nuevoContenido.tipo.toString(),
-      'url': nuevoContenido.url,
-      'fechaCreacion': nuevoContenido.fechaCreacion.toIso8601String(),
-      'comentariosTexto': nuevoContenido.comentariosTexto,
-      'comentariosAudio': nuevoContenido.comentariosAudio,
-      'duracionSegundos': nuevoContenido.duracionSegundos,
-      'roomId': 'proyecto_x',
+    String tipoString = 'image';
+    if (nuevoContenido.tipo == TipoContenido.video) tipoString = 'video';
+    else if (nuevoContenido.tipo == TipoContenido.audio) tipoString = 'audio';
+
+    SocketService.instance.emit('nuevo_multimedia', {
+      'roomId': widget.roomId,
+      'contenido': {
+        'id': nuevoContenido.id,
+        'autorId': nuevoContenido.autorId,
+        'autorNombre': nuevoContenido.autorNombre,
+        'tipo': tipoString,
+        'url': nuevoContenido.url,
+        'fechaCreacion': nuevoContenido.fechaCreacion.toIso8601String(),
+        'comentariosTexto': nuevoContenido.comentariosTexto,
+        'comentariosAudio': nuevoContenido.comentariosAudio,
+        'duracionSegundos': nuevoContenido.duracionSegundos,
+      }
     });
   }
 
@@ -243,10 +314,12 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
                 userName: _currentUserName,
                 userAvatar: _currentUserAvatar,
               ),
-              
+              // Indicador de carga inicial
+              if (_cargandoInicial)
+                const LinearProgressIndicator(minHeight: 2),
               // Contenido multimedia
               Expanded(
-                child: contenidoMultimedia.isEmpty
+                child: contenidoMultimedia.isEmpty && !_cargandoInicial
                     ? const Center(
                         child: Text(
                           'No hay contenido aún\n¡Comparte algo!',
@@ -293,6 +366,7 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
           
           // Botones flotantes en la esquina inferior derecha
           InputMultimediaWidget(
+            roomId: widget.roomId,
             onContenidoAgregado: _agregarContenido,
             onMapaTap: _toggleBliz,
           ),

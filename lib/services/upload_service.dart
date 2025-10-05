@@ -19,6 +19,7 @@ class UploadService {
     String mediaType, {
     String? roomId,
     String? userId,
+    String? userNombre,
     int? durationSeconds,
   }) async {
     try {
@@ -30,6 +31,7 @@ class UploadService {
           mediaType,
           roomId: roomId,
           userId: userId,
+          userNombre: userNombre,
           durationSeconds: durationSeconds,
         );
       } else {
@@ -38,6 +40,7 @@ class UploadService {
           mediaType,
           roomId: roomId,
           userId: userId,
+          userNombre: userNombre,
           durationSeconds: durationSeconds,
         );
       }
@@ -54,6 +57,7 @@ class UploadService {
     String mediaType, {
     String? roomId,
     String? userId,
+    String? userNombre,
     int? durationSeconds,
   }) async {
     try {
@@ -91,6 +95,7 @@ class UploadService {
       request.fields['fileSize'] = bytes.length.toString();
       if (roomId != null) request.fields['roomId'] = roomId;
       if (userId != null) request.fields['userId'] = userId;
+      if (userNombre != null) request.fields['userNombre'] = userNombre;
       if (durationSeconds != null) {
         request.fields['durationSeconds'] = durationSeconds.toString();
       }
@@ -128,6 +133,7 @@ class UploadService {
     String mediaType, {
     String? roomId,
     String? userId,
+    String? userNombre,
     int? durationSeconds,
   }) async {
     try {
@@ -159,6 +165,7 @@ class UploadService {
       request.fields['fileSize'] = (await file.length()).toString();
       if (roomId != null) request.fields['roomId'] = roomId;
       if (userId != null) request.fields['userId'] = userId;
+      if (userNombre != null) request.fields['userNombre'] = userNombre;
       if (durationSeconds != null) {
         request.fields['durationSeconds'] = durationSeconds.toString();
       }

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import '../services/chat_service.dart';
 import '../services/socket_service.dart';
 import '../services/auth_service.dart';
+import '../models/message_model.dart';
 
 class ChatProvider with ChangeNotifier {
   // Estado general
@@ -65,14 +66,17 @@ class ChatProvider with ChangeNotifier {
 
     // Mensajes
     socket.on('new_message', (data) {
-      final message = MessageModel.fromJson(data);
-      _addMessage(message);
+      try {
+        final msg = MessageModel.fromJson(Map<String,dynamic>.from(data));
+        _addMessage(msg);
+      } catch (e) {
+        print('❌ Error parseando mensaje: $e');
+      }
     });
 
     // Usuarios online/offline
     socket.on('user_online', (data) {
       try {
-        // Manejar formato seguro para user_online
         final userData = {
           'id': data['userId'] ?? data['id'] ?? 'unknown',
           'username': data['username'] ?? 'Usuario',
@@ -89,24 +93,14 @@ class ChatProvider with ChangeNotifier {
     });
 
     socket.on('user_offline', (data) {
-      _onlineUsers.remove(data['userId']);
-      notifyListeners();
-    });
-
-    // Eventos de sala
-    socket.on('user_joined_room', (data) {
-      // Actualizar miembros de la sala si es necesario
-      notifyListeners();
-    });
-
-    socket.on('user_left_room', (data) {
-      // Actualizar miembros de la sala si es necesario
-      notifyListeners();
+      final id = data['userId'] ?? data['id'];
+      if (id != null) {
+        _onlineUsers.remove(id);
+        notifyListeners();
+      }
     });
 
     socket.on('joined_room', (data) {
-      print('✅ Unido a sala: ${data['roomName']}');
-      // Recargar mensajes de la sala
       if (_currentRoom != null) {
         loadRoomMessages(_currentRoom!.id);
       }
@@ -114,17 +108,19 @@ class ChatProvider with ChangeNotifier {
 
     // Escritura
     socket.on('user_typing', (data) {
-      final username = data['username'];
-      if (!_typingUsers.contains(username)) {
-        _typingUsers.add(username);
+      final u = data['username'];
+      if (u != null && !_typingUsers.contains(u)) {
+        _typingUsers.add(u);
         notifyListeners();
       }
     });
 
     socket.on('user_stop_typing', (data) {
-      final username = data['username'];
-      _typingUsers.remove(username);
-      notifyListeners();
+      final u = data['username'];
+      if (u != null) {
+        _typingUsers.remove(u);
+        notifyListeners();
+      }
     });
 
     // Errores
@@ -155,11 +151,11 @@ class ChatProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      final result = await ChatService.getPublicRooms(search: search);
-      if (result.success && result.rooms != null) {
-        _rooms = result.rooms!;
+      final res = await ChatService.getPublicRooms(search: search);
+      if (res.success && res.rooms != null) {
+        _rooms = res.rooms!;
       } else {
-        _error = result.error ?? 'Error cargando salas';
+        _error = res.error ?? 'Error cargando salas';
       }
     } catch (e) {
       _error = 'Error de conexión: $e';
@@ -176,11 +172,11 @@ class ChatProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      final result = await ChatService.getMyRooms();
-      if (result.success && result.rooms != null) {
-        _myRooms = result.rooms!;
+      final res = await ChatService.getMyRooms();
+      if (res.success && res.rooms != null) {
+        _myRooms = res.rooms!;
       } else {
-        _error = result.error ?? 'Error cargando mis salas';
+        _error = res.error ?? 'Error cargando mis salas';
       }
     } catch (e) {
       _error = 'Error de conexión: $e';
@@ -201,19 +197,19 @@ class ChatProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      final result = await ChatService.createRoom(
+      final r = await ChatService.createRoom(
         name: name,
         description: description,
         type: type,
       );
 
-      if (result.success && result.room != null) {
-        _myRooms.insert(0, result.room!);
+      if (r.success && r.room != null) {
+        _myRooms.insert(0, r.room!);
         _isLoading = false;
         notifyListeners();
         return true;
       } else {
-        _error = result.error ?? 'Error creando sala';
+        _error = r.error ?? 'Error creando sala';
         _isLoading = false;
         notifyListeners();
         return false;
@@ -229,8 +225,8 @@ class ChatProvider with ChangeNotifier {
   // Unirse a sala
   Future<bool> joinRoom(String roomId) async {
     try {
-      final result = await ChatService.joinRoom(roomId);
-      if (result.success) {
+      final r = await ChatService.joinRoom(roomId);
+      if (r.success) {
         // Unirse al socket room
         SocketService.instance.joinRoom(roomId);
         
@@ -238,7 +234,7 @@ class ChatProvider with ChangeNotifier {
         await loadMyRooms();
         return true;
       } else {
-        _error = result.error ?? 'Error uniéndose a la sala';
+        _error = r.error ?? 'Error uniéndose a la sala';
         notifyListeners();
         return false;
       }
@@ -278,9 +274,9 @@ class ChatProvider with ChangeNotifier {
   // Cargar mensajes de una sala
   Future<void> loadRoomMessages(String roomId) async {
     try {
-      final result = await ChatService.getRoomMessages(roomId: roomId);
-      if (result.success && result.messages != null) {
-        _roomMessages[roomId] = result.messages!;
+      final res = await ChatService.getRoomMessages(roomId: roomId);
+      if (res.success && res.messages != null) {
+        _roomMessages[roomId] = res.messages!;
         notifyListeners();
       }
     } catch (e) {
@@ -311,48 +307,28 @@ class ChatProvider with ChangeNotifier {
 
   // Agregar mensaje a la lista local
   void _addMessage(MessageModel message) {
-    final roomId = message.roomId;
-    if (!_roomMessages.containsKey(roomId)) {
-      _roomMessages[roomId] = [];
-    }
-    
-    // Evitar duplicados
-    final exists = _roomMessages[roomId]!.any((m) => m.id == message.id);
-    if (!exists) {
-      _roomMessages[roomId]!.add(message);
+    final list = _roomMessages.putIfAbsent(message.roomId, () => []);
+    if (!list.any((m) => m.id == message.id)) {
+      list.add(message);
       notifyListeners();
     }
   }
 
   // Indicadores de escritura
-  void startTyping(String roomId) {
-    SocketService.instance.startTyping(roomId);
-  }
-
-  void stopTyping(String roomId) {
-    SocketService.instance.stopTyping(roomId);
-  }
+  void startTyping(String roomId) { SocketService.instance.startTyping(roomId); }
+  void stopTyping(String roomId) { SocketService.instance.stopTyping(roomId); }
 
   // Marcar mensaje como leído
-  void markMessageAsRead(String messageId) {
-    SocketService.instance.markMessageAsRead(messageId);
-  }
+  void markMessageAsRead(String messageId) { SocketService.instance.markMessageAsRead(messageId); }
 
   // Agregar reacción
-  void addReaction(String messageId, String emoji) {
-    SocketService.instance.addReaction(messageId, emoji);
-  }
+  void addReaction(String messageId, String emoji) { SocketService.instance.addReaction(messageId, emoji); }
 
   // === LIMPIEZA ===
 
   @override
   void dispose() {
-    // Limpiar listeners
-    final socket = SocketService.instance;
-    socket.off('connected', _checkConnection);
-    socket.off('disconnected', _checkConnection);
-    // ... otros listeners
-    
+    // No removemos callbacks individuales aquí porque se podrían seguir usando desde otras vistas; se limpia en disconnect.
     super.dispose();
   }
 }

@@ -11,6 +11,7 @@ class SocketService {
   bool _isConnected = false;
   final Set<String> _joinedRooms = {}; // evitar joins duplicados
   final Set<String> _pendingJoin = {}; // joins solicitados esperando confirmación
+  bool _eventsRegistrados = false; // asegura que _setupChatEvents solo corre una vez
   
   // Callbacks para eventos
   final Map<String, List<Function>> _eventCallbacks = {};
@@ -19,8 +20,17 @@ class SocketService {
   bool get isConnected => _isConnected;
   io.Socket? get socket => _socket;
 
-  // Conectar al servidor
+  // Conectar al servidor (idempotente)
   Future<bool> connect() async {
+    if (_isConnected && _socket != null) {
+      print('♻️ Reuso de conexión socket existente');
+      return true;
+    }
+    if (_socket != null && _socket!.connected) {
+      _isConnected = true;
+      print('♻️ Socket ya conectado (flag reparado)');
+      return true;
+    }
     try {
       final token = await AuthService.getToken();
       if (token == null) {
@@ -30,53 +40,59 @@ class SocketService {
 
       print('🔑 Conectando con token: ${token.substring(0, 20)}...');
 
-      // Configurar socket
+      // Configurar socket (solo crear si no existe)
       _socket = io.io(
         'http://localhost:3000',
         io.OptionBuilder()
             .setTransports(['websocket', 'polling'])
-            .enableAutoConnect()
+            .disableAutoConnect() // desactivar auto connect para controlar manualmente
             .setAuth({'token': token})
             .build(),
       );
 
-      // Eventos de conexión
-      _socket!.onConnect((_) {
-        _isConnected = true;
-        print('✅ Conectado al servidor de chat');
-        _notifyCallbacks('connected', null);
-      });
+      // Evitar registrar eventos múltiples
+      if (!_eventsRegistrados) {
+        _socket!.onConnect((_) {
+          _isConnected = true;
+            print('✅ Conectado al servidor de chat');
+            _notifyCallbacks('connected', null);
+        });
 
-      // Debug global: log de cualquier evento recibido (excepto ping/pong internos)
-      _socket!.onAny((event, data) {
-        if (event == 'ping' || event == 'pong') return;
-        print('🌐 [onAny] event=$event dataKeys=${data is Map ? data.keys.toList() : data.runtimeType}');
-      });
+        // Debug global: log de cualquier evento recibido (excepto ping/pong internos)
+        _socket!.onAny((event, data) {
+          if (event == 'ping' || event == 'pong') return;
+          print('🌐 [onAny] event=$event dataKeys=${data is Map ? data.keys.toList() : data.runtimeType}');
+        });
 
-      _socket!.onDisconnect((_) {
-        _isConnected = false;
-        print('❌ Desconectado del servidor');
-        _notifyCallbacks('disconnected', null);
-      });
+        _socket!.onDisconnect((_) {
+          _isConnected = false;
+          print('❌ Desconectado del servidor');
+          _notifyCallbacks('disconnected', null);
+        });
 
-      _socket!.onConnectError((error) {
-        _isConnected = false;
-        print('❌ Error de conexión: $error');
-        _notifyCallbacks('connect_error', error);
-      });
+        _socket!.onConnectError((error) {
+          _isConnected = false;
+          print('❌ Error de conexión: $error');
+          _notifyCallbacks('connect_error', error);
+        });
 
-      _socket!.on('auth_error', (data) {
-        print('❌ Error de autenticación: $data');
-        _notifyCallbacks('auth_error', data);
-        disconnect();
-      });
+        _socket!.on('auth_error', (data) {
+          print('❌ Error de autenticación: $data');
+          _notifyCallbacks('auth_error', data);
+          disconnect();
+        });
 
-      // Eventos del chat
-      _setupChatEvents();
+        // Eventos del chat
+        _setupChatEvents();
+        _eventsRegistrados = true;
+      } else {
+        print('🔁 Eventos ya registrados, no se duplican');
+      }
 
-      // Conectar
-      _socket!.connect();
-      
+      // Conectar si aún no
+      if (!(_socket!.connected)) {
+        _socket!.connect();
+      }
       return true;
     } catch (e) {
       print('❌ Error conectando socket: $e');
@@ -84,9 +100,14 @@ class SocketService {
     }
   }
 
-  // Configurar eventos del chat
+  // Configurar eventos del chat (solo se llama internamente si no registrados)
   void _setupChatEvents() {
     if (_socket == null) return;
+
+    // limpiar previos
+    for (final ev in [
+      'new_message','user_online','user_offline','user_joined_room','user_left_room','joined_room','user_typing','user_stop_typing','message_read','message_reaction','error'
+    ]) { _socket!.off(ev); }
 
     // Nuevo mensaje
     _socket!.on('new_message', (data) {
@@ -96,57 +117,51 @@ class SocketService {
 
     // Usuario online/offline
     _socket!.on('user_online', (data) {
-      final username = data['username'] ?? data['userId'] ?? 'Usuario';
-      print('🟢 Usuario online: $username');
+      print('🟢 Usuario online: ${data['username'] ?? data['userId']}');
       _notifyCallbacks('user_online', data);
     });
 
     _socket!.on('user_offline', (data) {
-      final username = data['username'] ?? data['userId'] ?? 'Usuario';
-      print('🔴 Usuario offline: $username');
+      print('🔴 Usuario offline: ${data['username'] ?? data['userId']}');
       _notifyCallbacks('user_offline', data);
     });
 
     // Eventos de sala
-    _socket!.on('user_joined_room', (data) {
-      print('🏠 Usuario se unió a sala: ${data['username']}');
-      _notifyCallbacks('user_joined_room', data);
-    });
+    _socket!.on('user_joined_room', (data) => _notifyCallbacks('user_joined_room', data));
 
-    _socket!.on('user_left_room', (data) {
-      print('🚪 Usuario salió de sala: ${data['username']}');
-      _notifyCallbacks('user_left_room', data);
-    });
+    _socket!.on('user_left_room', (data) => _notifyCallbacks('user_left_room', data));
 
     // Confirmación de unirse a sala
     _socket!.on('joined_room', (data) {
-      print('✅ Te uniste a sala: ${data['roomName']}');
-      _notifyCallbacks('joined_room', data);
+      print('✅ Te uniste a sala: ${data['roomName'] ?? data['roomId']}');
       final room = data['roomName'] ?? data['roomId'];
       if (room is String) {
         _pendingJoin.remove(room);
         _joinedRooms.add(room);
       }
+      _notifyCallbacks('joined_room', data);
     });
 
     // Indicadores de escritura
-    _socket!.on('user_typing', (data) {
-      _notifyCallbacks('user_typing', data);
-    });
+    _socket!.on('user_typing', (data) => _notifyCallbacks('user_typing', data));
 
-    _socket!.on('user_stop_typing', (data) {
-      _notifyCallbacks('user_stop_typing', data);
-    });
+    _socket!.on('user_stop_typing', (data) => _notifyCallbacks('user_stop_typing', data));
 
     // Mensaje leído
-    _socket!.on('message_read', (data) {
-      _notifyCallbacks('message_read', data);
-    });
+    _socket!.on('message_read', (data) => _notifyCallbacks('message_read', data));
 
     // Reacciones
-    _socket!.on('message_reaction', (data) {
-      _notifyCallbacks('message_reaction', data);
+    _socket!.on('message_reaction', (data) => _notifyCallbacks('message_reaction', data));
+
+    // Multimedia compartido (feed)
+    _socket!.on('multimedia_compartido', (data) {
+      print('🎯 Socket nativo recibió multimedia_compartido: $data');
+      _notifyCallbacks('multimedia_compartido', data);
     });
+
+    // Eventos de contenido (legacy)
+    _socket!.on('nuevo_contenido', (data) => _notifyCallbacks('nuevo_contenido', data));
+    _socket!.on('historial_contenido', (data) => _notifyCallbacks('historial_contenido', data));
 
     // Errores
     _socket!.on('error', (data) {
@@ -163,15 +178,16 @@ class SocketService {
     }
     _isConnected = false;
     _eventCallbacks.clear();
+    _eventsRegistrados = false;
+    _joinedRooms.clear();
+    _pendingJoin.clear();
   }
 
   // === MÉTODOS DE EVENTOS ===
 
   // Agregar callback para evento
   void on(String event, Function callback) {
-    if (!_eventCallbacks.containsKey(event)) {
-      _eventCallbacks[event] = [];
-    }
+    _eventCallbacks.putIfAbsent(event, () => []);
     _eventCallbacks[event]!.add(callback);
   }
 
@@ -184,14 +200,10 @@ class SocketService {
 
   // Notificar callbacks
   void _notifyCallbacks(String event, dynamic data) {
-    if (_eventCallbacks.containsKey(event)) {
-      for (final callback in _eventCallbacks[event]!) {
-        try {
-          callback(data);
-        } catch (e) {
-          print('❌ Error en callback $event: $e');
-        }
-      }
+    final list = _eventCallbacks[event];
+    if (list == null) return;
+    for (final cb in List<Function>.from(list)) {
+      try { cb(data); } catch (e) { print('❌ Error en callback $event: $e'); }
     }
   }
 
@@ -261,7 +273,6 @@ class SocketService {
     if (!_isConnected || _socket == null) return;
     _socket!.emit('typing_start', {'roomId': roomId});
   }
-
   void stopTyping(String roomId) {
     if (!_isConnected || _socket == null) return;
     _socket!.emit('typing_stop', {'roomId': roomId});
@@ -276,112 +287,12 @@ class SocketService {
   // Agregar reacción
   void addReaction(String messageId, String emoji) {
     if (!_isConnected || _socket == null) return;
-    _socket!.emit('add_reaction', {
-      'messageId': messageId,
-      'emoji': emoji,
-    });
+    _socket!.emit('add_reaction', {'messageId': messageId, 'emoji': emoji});
   }
-}
 
-// Modelo de mensaje
-class MessageModel {
-  final String id;
-  final String content;
-  final String type;
-  final UserModel sender;
-  final String roomId;
-  final String? fileUrl;
-  final String? fileName;
-  final int? fileSize;
-  final String? mimeType;
-  final String? replyTo;
-  final List<MessageReaction> reactions;
-  final List<MessageRead> readBy;
-  final DateTime? editedAt;
-  final bool isDeleted;
-  final DateTime createdAt;
-  final DateTime updatedAt;
-
-  MessageModel({
-    required this.id,
-    required this.content,
-    required this.type,
-    required this.sender,
-    required this.roomId,
-    this.fileUrl,
-    this.fileName,
-    this.fileSize,
-    this.mimeType,
-    this.replyTo,
-    required this.reactions,
-    required this.readBy,
-    this.editedAt,
-    required this.isDeleted,
-    required this.createdAt,
-    required this.updatedAt,
-  });
-
-  factory MessageModel.fromJson(Map<String, dynamic> json) {
-    return MessageModel(
-      id: json['id'] ?? DateTime.now().millisecondsSinceEpoch.toString(),
-      content: json['content'] ?? '',
-      type: json['type'] ?? 'text',
-      sender: UserModel.fromJson(json['sender'] ?? {}),
-      roomId: json['roomId'] ?? json['room'] ?? 'sala-general',
-      fileUrl: json['fileUrl'],
-      fileName: json['fileName'],
-      fileSize: json['fileSize'],
-      mimeType: json['mimeType'],
-      replyTo: json['replyTo'],
-      reactions: (json['reactions'] as List? ?? [])
-          .map((r) => MessageReaction.fromJson(r))
-          .toList(),
-      readBy: (json['readBy'] as List? ?? [])
-          .map((r) => MessageRead.fromJson(r))
-          .toList(),
-      editedAt: json['editedAt'] != null ? DateTime.parse(json['editedAt']) : null,
-      isDeleted: json['isDeleted'] ?? false,
-      createdAt: DateTime.parse(json['createdAt']),
-      updatedAt: DateTime.parse(json['updatedAt']),
-    );
-  }
-}
-
-// Modelo de reacción
-class MessageReaction {
-  final String userId;
-  final String emoji;
-  final DateTime createdAt;
-
-  MessageReaction({
-    required this.userId,
-    required this.emoji,
-    required this.createdAt,
-  });
-
-  factory MessageReaction.fromJson(Map<String, dynamic> json) {
-    return MessageReaction(
-      userId: json['user'],
-      emoji: json['emoji'],
-      createdAt: DateTime.parse(json['createdAt']),
-    );
-  }
-}
-
-// Modelo de lectura
-class MessageRead {
-  final String userId;
-  final DateTime readAt;
-
-  MessageRead({
-    required this.userId,
-    required this.readAt,
-  });
-
-  factory MessageRead.fromJson(Map<String, dynamic> json) {
-    return MessageRead(
-      userId: json['user'],
-      readAt: DateTime.parse(json['readAt']),
-    );
+  // Método público para emitir eventos personalizados
+  void emit(String event, dynamic data) {
+    if (!_isConnected || _socket == null) return;
+    _socket!.emit(event, data);
   }
 }

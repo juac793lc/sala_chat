@@ -32,6 +32,7 @@ const initDb = async () => {
       media_id TEXT UNIQUE,
       room_id TEXT,
       user_id TEXT,
+      user_nombre TEXT,
       tipo TEXT,
       url TEXT,
       mime TEXT,
@@ -83,9 +84,13 @@ module.exports = {
   
   async insertMedia(data) {
     const database = await initDb();
-    const stmt = database.prepare(`INSERT INTO media (media_id, room_id, user_id, tipo, url, mime, size_bytes, duration_seconds, original_name)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    stmt.run([data.media_id, data.room_id, data.user_id, data.tipo, data.url, data.mime, data.size_bytes, data.duration_seconds, data.original_name]);
+    // Migrar columna user_nombre si no existe
+    try { database.exec('SELECT user_nombre FROM media LIMIT 1'); } catch (_) {
+      try { database.exec('ALTER TABLE media ADD COLUMN user_nombre TEXT'); saveDb(); } catch (e) { console.warn('No se pudo agregar user_nombre:', e.message); }
+    }
+    const stmt = database.prepare(`INSERT INTO media (media_id, room_id, user_id, user_nombre, tipo, url, mime, size_bytes, duration_seconds, original_name)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    stmt.run([data.media_id, data.room_id, data.user_id, data.user_nombre || null, data.tipo, data.url, data.mime, data.size_bytes, data.duration_seconds, data.original_name]);
     saveDb();
     
     const result = database.exec('SELECT * FROM media WHERE media_id = ?', [data.media_id]);

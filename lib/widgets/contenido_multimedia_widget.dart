@@ -263,100 +263,98 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
 
   // Construir widget de imagen compatible con PWA y dispositivos nativos
   Widget _buildImageWidget() {
-    // Si es una URL blob (PWA) o archivo del dispositivo
+    // Si es una URL del servidor, blob (PWA) o URL HTTP, usar Image.network
     if (widget.contenido.url.startsWith('blob:') || 
-        widget.contenido.url.startsWith('/') || 
-        widget.contenido.url.contains('\\') ||
-        widget.contenido.url.startsWith('http')) {
+        widget.contenido.url.startsWith('http://') ||
+        widget.contenido.url.startsWith('https://') ||
+        widget.contenido.url.startsWith('/uploads/')) {
       
-      if (kIsWeb && widget.contenido.url.startsWith('blob:')) {
-        // PWA: usar Image.network para blob URLs
-        return Image.network(
-          widget.contenido.url,
-          fit: BoxFit.contain,
-          width: double.infinity,
-          height: double.infinity,
-          filterQuality: FilterQuality.medium,
-          cacheWidth: 400,
-          cacheHeight: 400,
-          errorBuilder: (context, error, stackTrace) {
-            return Container(
-              width: double.infinity,
-              height: double.infinity,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Colors.blue.shade100, Colors.purple.shade100],
-                ),
+      // Usar Image.network para URLs remotas, blobs, y rutas del servidor
+      return Image.network(
+        widget.contenido.url,
+        fit: BoxFit.contain,
+        width: double.infinity,
+        height: double.infinity,
+        filterQuality: FilterQuality.medium,
+        cacheWidth: 400,
+        cacheHeight: 400,
+        errorBuilder: (context, error, stackTrace) {
+          return Container(
+            width: double.infinity,
+            height: double.infinity,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Colors.blue.shade100, Colors.purple.shade100],
               ),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.image,
+                  size: 60,
+                  color: Colors.white70,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Error cargando imagen',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    } else if (!kIsWeb) {
+      // Dispositivos nativos: usar Image.file solo para paths locales
+      return Image.file(
+        File(widget.contenido.url),
+        fit: BoxFit.contain,
+        width: double.infinity,
+        height: double.infinity,
+        filterQuality: FilterQuality.medium,
+        cacheWidth: 400,
+        cacheHeight: 400,
+        errorBuilder: (context, error, stackTrace) {
+          return Container(
+            width: double.infinity,
+            height: double.infinity,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Colors.red.shade100, Colors.orange.shade100],
+              ),
+            ),
+            child: const Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(
-                    Icons.image,
+                  Icon(
+                    Icons.error_outline,
                     size: 60,
                     color: Colors.white70,
                   ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Imagen',
+                  SizedBox(height: 8),
+                  Text(
+                    'Error al cargar imagen',
                     style: TextStyle(
                       color: Colors.white70,
                       fontSize: 12,
                     ),
-                    textAlign: TextAlign.center,
                   ),
                 ],
               ),
-            );
-          },
-        );
-      } else {
-        // Dispositivos nativos: usar Image.file
-        return Image.file(
-          File(widget.contenido.url),
-          fit: BoxFit.contain,
-          width: double.infinity,
-          height: double.infinity,
-          filterQuality: FilterQuality.medium,
-          cacheWidth: 400,
-          cacheHeight: 400,
-          errorBuilder: (context, error, stackTrace) {
-            return Container(
-              width: double.infinity,
-              height: double.infinity,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Colors.red.shade100, Colors.orange.shade100],
-                ),
-              ),
-              child: const Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.error_outline,
-                      size: 60,
-                      color: Colors.white70,
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      'Error al cargar imagen',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      }
+            ),
+          );
+        },
+      );
     } else {
       // Placeholder para cuando no hay imagen
       return Container(

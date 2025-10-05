@@ -35,7 +35,7 @@ class SalaChatApp extends StatelessWidget {
         home: const AuthChecker(),
         routes: {
           '/welcome': (context) => const WelcomeScreen(),
-          '/chat': (context) => const ChatPrincipalScreen(),
+          '/chat': (context) => const ChatPrincipalScreen(roomId: 'general'),
           '/simple-chat': (context) => const SimpleChatScreen(),
         },
       ),
@@ -94,7 +94,7 @@ class _AuthCheckerState extends State<AuthChecker> {
 
         // Si está autenticado, ir al chat principal (con mapa y videos)
         if (authProvider.isAuthenticated) {
-          return const ChatPrincipalScreen();
+          return const ChatPrincipalScreen(roomId: 'general');
         }
 
         // Si no está autenticado, mostrar pantalla de bienvenida
