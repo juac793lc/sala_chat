@@ -1,6 +1,6 @@
 const express = require('express');
 const Joi = require('joi');
-const { generateToken } = require('../middleware/auth');
+const { generateToken, getJwtSecret } = require('../middleware/auth');
 const db = require('../config/memory_db');
 
 const router = express.Router();
@@ -75,8 +75,8 @@ router.get('/verify', async (req, res) => {
       return res.status(401).json({ error: 'Token requerido' });
     }
 
-    const jwt = require('jsonwebtoken');
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  const jwt = require('jsonwebtoken');
+  const decoded = jwt.verify(token, getJwtSecret());
     const user = await db.findUserById(decoded.userId);
     
     if (!user) {
@@ -129,14 +129,14 @@ router.post('/logout', async (req, res) => {
     if (token) {
       const jwt = require('jsonwebtoken');
       try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const decoded = jwt.verify(token, getJwtSecret());
         await db.updateUser(decoded.userId, {
           isOnline: false,
           socketId: '',
           lastSeen: new Date()
         });
       } catch (err) {
-        // Token inválido, pero aún podemos hacer logout
+        console.warn('Logout: token inválido o expirado');
       }
     }
 

@@ -16,6 +16,10 @@ const db = require('./src/config/memory_db');
 const sqlite = require('./src/config/sqlite_db');
 
 const app = express();
+// Cuando la app corre detrás de un proxy (Railway, Heroku, etc.)
+// permitir que Express confíe en cabeceras como X-Forwarded-For
+// para que middlewares como express-rate-limit funcionen correctamente.
+app.set('trust proxy', true);
 const server = http.createServer(app);
 
 // Configuración de Socket.IO con CORS

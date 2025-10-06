@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const { getJwtSecret } = require('../middleware/auth');
 const { v4: uuidv4 } = require('uuid');
 const sqlite = require('../config/sqlite_db');
 
@@ -21,7 +22,7 @@ const authenticateSocket = async (socket) => {
       throw new Error('No token provided');
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  const decoded = jwt.verify(token, getJwtSecret());
     console.log(`✅ Token decodificado para usuario: ${decoded.userId} (${decoded.username})`);
     
     // Registrar usuario único (acumula total de usuarios con la app)

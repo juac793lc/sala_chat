@@ -1,5 +1,9 @@
 const jwt = require('jsonwebtoken');
 
+// Valor por defecto seguro para desarrollo si no existe la variable de entorno.
+// En producción configure process.env.JWT_SECRET con un secreto fuerte.
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
+
 // Middleware de autenticación simplificado (sin base de datos)
 const auth = async (req, res, next) => {
   try {
@@ -9,7 +13,7 @@ const auth = async (req, res, next) => {
       return res.status(401).json({ error: 'Acceso denegado. Token requerido.' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  const decoded = jwt.verify(token, JWT_SECRET);
     
     // Usuario simple sin base de datos (solo validar token)
     req.user = {
@@ -40,13 +44,17 @@ const checkRoomPermission = (requiredRole = 'member') => {
 const generateToken = (userId, username) => {
   return jwt.sign(
     { userId, username },
-    process.env.JWT_SECRET,
+    JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
   );
 };
 
+// Exponer el secreto para que rutas/tests puedan reutilizarlo si es necesario
+const getJwtSecret = () => JWT_SECRET;
+
 module.exports = {
   auth,
   checkRoomPermission,
-  generateToken
+  generateToken,
+  getJwtSecret
 };
