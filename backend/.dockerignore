@@ -1,0 +1,6 @@
+node_modules
+npm-debug.log
+chat_data.db
+src/uploads
+.env
+.DS_Store
