@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../models/comentario.dart';
 
@@ -11,18 +12,18 @@ class HistoryService {
   
   static Future<List<Comentario>> cargarHistorialRoom(String roomId) async {
     try {
-      print('📚 Cargando historial para room: $roomId');
+      debugPrint('📚 Cargando historial para room: $roomId');
       final now = DateTime.now();
       final cache = _roomCache[roomId];
       if (cache != null) {
         final age = now.difference(cache.timestamp);
         if (age < _minInterval) {
-          print('🛑 Usando cache (intervalo mínimo) para room $roomId (age=${age.inSeconds}s)');
+          debugPrint('🛑 Usando cache (intervalo mínimo) para room $roomId (age=${age.inSeconds}s)');
           return cache.comentarios;
         }
         if (age < _cacheTtl) {
           // Haremos petición, pero si falla (429) devolveremos cache
-          print('ℹ️ Cache existente (age=${age.inSeconds}s), intentando refrescar...');
+          debugPrint('ℹ️ Cache existente (age=${age.inSeconds}s), intentando refrescar...');
         }
       }
       
@@ -37,18 +38,18 @@ class HistoryService {
       );
       
       if (messagesResponse.statusCode == 429 || mediaResponse.statusCode == 429) {
-        print('⚠️ 429 Too Many Requests (messages=${messagesResponse.statusCode}, media=${mediaResponse.statusCode})');
+        debugPrint('⚠️ 429 Too Many Requests (messages=${messagesResponse.statusCode}, media=${mediaResponse.statusCode})');
         if (cache != null) {
-          print('♻️ Devolviendo cache previo (${cache.comentarios.length} comentarios)');
+          debugPrint('♻️ Devolviendo cache previo (${cache.comentarios.length} comentarios)');
           return cache.comentarios;
         }
         return [];
       }
 
       if (messagesResponse.statusCode != 200 || mediaResponse.statusCode != 200) {
-        print('❌ Error cargando historial: messages=${messagesResponse.statusCode}, media=${mediaResponse.statusCode}');
+        debugPrint('❌ Error cargando historial: messages=${messagesResponse.statusCode}, media=${mediaResponse.statusCode}');
         if (cache != null) {
-          print('♻️ Devolviendo cache previo por fallo de red');
+          debugPrint('♻️ Devolviendo cache previo por fallo de red');
           return cache.comentarios;
         }
         return [];
@@ -57,7 +58,7 @@ class HistoryService {
       final messagesData = jsonDecode(messagesResponse.body);
       final mediaData = jsonDecode(mediaResponse.body);
       
-      print('📊 Historial cargado: ${messagesData['count']} mensajes, ${mediaData['count']} medias');
+      debugPrint('📊 Historial cargado: ${messagesData['count']} mensajes, ${mediaData['count']} medias');
       
       List<Comentario> comentarios = [];
       Map<String, dynamic> mediaMap = {};
@@ -87,7 +88,7 @@ class HistoryService {
           comentarios.add(comentario);
           
         } catch (e) {
-          print('⚠️ Error procesando mensaje ${message['message_id']}: $e');
+          debugPrint('⚠️ Error procesando mensaje ${message['message_id']}: $e');
         }
       }
       
@@ -98,15 +99,15 @@ class HistoryService {
     comentarios[i] = comentarios[i].copyWith(ordenSecuencia: i);
   }
       
-  print('✅ Historial procesado: ${comentarios.length} comentarios listos');
+  debugPrint('✅ Historial procesado: ${comentarios.length} comentarios listos');
   _roomCache[roomId] = _RoomCacheEntry(comentarios, now);
   return comentarios;
       
     } catch (e) {
-      print('❌ Error cargando historial: $e');
+      debugPrint('❌ Error cargando historial: $e');
       final cache = _roomCache[roomId];
       if (cache != null) {
-        print('♻️ Devolviendo cache previo tras excepción (${cache.comentarios.length})');
+        debugPrint('♻️ Devolviendo cache previo tras excepción (${cache.comentarios.length})');
         return cache.comentarios;
       }
       return [];
@@ -115,14 +116,14 @@ class HistoryService {
   
   static Future<List<String>> cargarHistorialAudio(String roomId) async {
     try {
-      print('🎵 Cargando historial de audio para room: $roomId');
+      debugPrint('🎵 Cargando historial de audio para room: $roomId');
       
       final response = await http.get(
         Uri.parse('$baseUrl/media/by-room/$roomId?limit=100&offset=0'),
       );
       
       if (response.statusCode != 200) {
-        print('❌ Error cargando media: ${response.statusCode}');
+        debugPrint('❌ Error cargando media: ${response.statusCode}');
         return [];
       }
       
@@ -135,11 +136,11 @@ class HistoryService {
         }
       }
       
-      print('✅ Audio historial cargado: ${audioUrls.length} archivos');
+      debugPrint('✅ Audio historial cargado: ${audioUrls.length} archivos');
       return audioUrls;
       
     } catch (e) {
-      print('❌ Error cargando historial audio: $e');
+      debugPrint('❌ Error cargando historial audio: $e');
       return [];
     }
   }

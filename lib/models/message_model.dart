@@ -26,7 +26,7 @@ class MessageModel {
   });
 
   factory MessageModel.fromJson(Map<String, dynamic> json) {
-    DateTime _parseDate(dynamic v) {
+    DateTime parseDate(dynamic v) {
       try { return DateTime.parse(v.toString()); } catch (_) { return DateTime.now(); }
     }
     return MessageModel(
@@ -35,8 +35,8 @@ class MessageModel {
       type: json['type']?.toString() ?? 'text',
       roomId: json['roomId']?.toString() ?? json['room']?.toString() ?? 'sala-general',
       sender: MessageSender.fromJson(json['sender'] is Map ? Map<String,dynamic>.from(json['sender']) : {}),
-      createdAt: _parseDate(json['createdAt']),
-      updatedAt: _parseDate(json['updatedAt']),
+      createdAt: parseDate(json['createdAt']),
+      updatedAt: parseDate(json['updatedAt']),
       isDeleted: json['isDeleted'] == true,
       mediaId: json['mediaId']?.toString(),
       reactions: (json['reactions'] as List? ?? []).map((r) => MessageReaction.fromJson(r)).toList(),

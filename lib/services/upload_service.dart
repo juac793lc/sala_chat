@@ -1,13 +1,16 @@
+import 'dart:convert';
+import 'dart:html' as html; // ignore: avoid_web_libraries_in_flutter
 import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:mime/mime.dart';
 import 'package:path/path.dart' as path;
-import 'dart:convert';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'dart:typed_data';
+
 import 'web_storage_service.dart';
-import 'dart:html' as html;
 
 class UploadService {
   // Ajustar al puerto real del backend (server.js usa 3000 por defecto)
@@ -23,7 +26,7 @@ class UploadService {
     int? durationSeconds,
   }) async {
     try {
-      print('📤 Iniciando upload: $filePathOrId (${kIsWeb ? 'Web' : 'Mobile'})');
+      debugPrint('📤 Iniciando upload: $filePathOrId (${kIsWeb ? 'Web' : 'Mobile'})');
       
       if (kIsWeb) {
         return await _uploadFromWeb(
@@ -46,7 +49,7 @@ class UploadService {
       }
       
     } catch (e) {
-      print('❌ Error en uploadFile: $e');
+      debugPrint('❌ Error en uploadFile: $e');
       rethrow;
     }
   }
@@ -100,10 +103,10 @@ class UploadService {
         request.fields['durationSeconds'] = durationSeconds.toString();
       }
       
-      print('📊 Subiendo desde web:');
-      print('   - Nombre: $fileName');
-      print('   - Tipo: $mimeType');
-      print('   - Tamaño: ${bytes.length} bytes');
+      debugPrint('📊 Subiendo desde web:');
+      debugPrint('   - Nombre: $fileName');
+      debugPrint('   - Tipo: $mimeType');
+      debugPrint('   - Tamaño: ${bytes.length} bytes');
       
       // Enviar request
       final response = await request.send();
@@ -113,16 +116,16 @@ class UploadService {
         final jsonResponse = json.decode(responseBody);
         final result = UploadResult.fromJson(jsonResponse);
         
-        print('✅ Upload exitoso desde web: ${result.url}');
+        debugPrint('✅ Upload exitoso desde web: ${result.url}');
         return result;
       } else {
-        print('❌ Error en upload web: ${response.statusCode}');
-        print('❌ Respuesta: $responseBody');
+        debugPrint('❌ Error en upload web: ${response.statusCode}');
+        debugPrint('❌ Respuesta: $responseBody');
         throw Exception('Error uploading file from web: ${response.statusCode}');
       }
       
     } catch (e) {
-      print('❌ Error en _uploadFromWeb: $e');
+      debugPrint('❌ Error en _uploadFromWeb: $e');
       rethrow;
     }
   }
@@ -170,10 +173,10 @@ class UploadService {
         request.fields['durationSeconds'] = durationSeconds.toString();
       }
       
-      print('📊 Subiendo desde móvil:');
-      print('   - Nombre: $fileName');
-      print('   - Tipo: $mimeType');
-      print('   - Tamaño: ${await file.length()} bytes');
+      debugPrint('📊 Subiendo desde móvil:');
+      debugPrint('   - Nombre: $fileName');
+      debugPrint('   - Tipo: $mimeType');
+      debugPrint('   - Tamaño: ${await file.length()} bytes');
       
       // Enviar request
       final response = await request.send();
@@ -183,16 +186,16 @@ class UploadService {
         final jsonResponse = json.decode(responseBody);
         final result = UploadResult.fromJson(jsonResponse);
         
-        print('✅ Upload exitoso desde móvil: ${result.url}');
+        debugPrint('✅ Upload exitoso desde móvil: ${result.url}');
         return result;
       } else {
-        print('❌ Error en upload móvil: ${response.statusCode}');
-        print('❌ Respuesta: $responseBody');
+        debugPrint('❌ Error en upload móvil: ${response.statusCode}');
+        debugPrint('❌ Respuesta: $responseBody');
         throw Exception('Error uploading file from mobile: ${response.statusCode}');
       }
       
     } catch (e) {
-      print('❌ Error en _uploadFromMobile: $e');
+      debugPrint('❌ Error en _uploadFromMobile: $e');
       rethrow;
     }
   }
@@ -248,7 +251,7 @@ class UploadService {
     int? durationSeconds,
   }) async {
     try {
-      print('📤 Subiendo audio blob directamente...');
+      debugPrint('📤 Subiendo audio blob directamente...');
       
       if (!kIsWeb) {
         throw Exception('uploadAudioBlob solo funciona en web');
@@ -264,13 +267,13 @@ class UploadService {
         final htmlBlob = blob as html.Blob; // if cast fails, permanecen defaults
         if (htmlBlob.type.isNotEmpty) {
           realMime = htmlBlob.type; // ej: audio/webm;codecs=opus
-          if (realMime.contains('wav')) extension = 'wav';
-          else if (realMime.contains('mp4')) extension = 'm4a';
-          else if (realMime.contains('mpeg')) extension = 'mp3';
-          else extension = 'webm';
+          if (realMime.contains('wav')) { extension = 'wav'; }
+          else if (realMime.contains('mp4')) { extension = 'm4a'; }
+          else if (realMime.contains('mpeg')) { extension = 'mp3'; }
+          else { extension = 'webm'; }
         }
       } catch (e) {
-        print('⚠️ No se pudo obtener mime del blob, usando defaults webm: $e');
+        debugPrint('⚠️ No se pudo obtener mime del blob, usando defaults webm: $e');
       }
       
       // Preparar multipart request
@@ -302,10 +305,10 @@ class UploadService {
         request.fields['durationSeconds'] = durationSeconds.toString();
       }
       
-  print('📊 Subiendo audio blob (mime real detectado):');
-      print('   - Nombre: $fileName');
-      print('   - Tipo: $mimeType');
-      print('   - Tamaño: ${bytes.length} bytes');
+  debugPrint('📊 Subiendo audio blob (mime real detectado):');
+      debugPrint('   - Nombre: $fileName');
+      debugPrint('   - Tipo: $mimeType');
+      debugPrint('   - Tamaño: ${bytes.length} bytes');
       
       // Enviar request
       final response = await request.send();
@@ -315,16 +318,16 @@ class UploadService {
         final jsonResponse = json.decode(responseBody);
         final result = UploadResult.fromJson(jsonResponse);
         
-        print('✅ Upload de blob exitoso: ${result.url}');
+        debugPrint('✅ Upload de blob exitoso: ${result.url}');
         return result;
       } else {
-        print('❌ Error en upload de blob: ${response.statusCode}');
-        print('❌ Respuesta: $responseBody');
+        debugPrint('❌ Error en upload de blob: ${response.statusCode}');
+        debugPrint('❌ Respuesta: $responseBody');
         throw Exception('Error uploading audio blob: ${response.statusCode}');
       }
       
     } catch (e) {
-      print('❌ Error en uploadAudioBlob: $e');
+      debugPrint('❌ Error en uploadAudioBlob: $e');
       rethrow;
     }
   }
@@ -342,7 +345,7 @@ class UploadService {
   /// Descarga un archivo del servidor y lo guarda localmente
   static Future<String> downloadFile(String url, String localPath) async {
     try {
-      print('📥 Descargando: $url');
+      debugPrint('📥 Descargando: $url');
       
       final response = await http.get(Uri.parse(url));
       
@@ -350,13 +353,13 @@ class UploadService {
         final file = File(localPath);
         await file.writeAsBytes(response.bodyBytes);
         
-        print('✅ Descarga exitosa: $localPath');
+        debugPrint('✅ Descarga exitosa: $localPath');
         return localPath;
       } else {
         throw Exception('Error downloading file: ${response.statusCode}');
       }
     } catch (e) {
-      print('❌ Error en downloadFile: $e');
+      debugPrint('❌ Error en downloadFile: $e');
       rethrow;
     }
   }
@@ -367,7 +370,7 @@ class UploadService {
       final response = await http.head(Uri.parse(url));
       return response.statusCode == 200;
     } catch (e) {
-      print('❌ URL no accesible: $url');
+      debugPrint('❌ URL no accesible: $url');
       return false;
     }
   }
@@ -378,7 +381,7 @@ class UploadService {
       final response = await http.delete(Uri.parse(url));
       return response.statusCode == 200 || response.statusCode == 204;
     } catch (e) {
-      print('❌ Error eliminando archivo del servidor: $e');
+      debugPrint('❌ Error eliminando archivo del servidor: $e');
       return false;
     }
   }

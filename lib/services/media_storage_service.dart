@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
+import 'package:flutter/material.dart';
 
 class MediaStorageService {
   static const String _mediaFolderName = 'media';
@@ -15,7 +16,7 @@ class MediaStorageService {
     
     if (!await mediaDir.exists()) {
       await mediaDir.create(recursive: true);
-      print('📁 Creado directorio multimedia: ${mediaDir.path}');
+      debugPrint('📁 Creado directorio multimedia: ${mediaDir.path}');
     }
     
     return mediaDir;
@@ -28,7 +29,7 @@ class MediaStorageService {
     
     if (!await typeDir.exists()) {
       await typeDir.create(recursive: true);
-      print('📁 Creado directorio $mediaType: ${typeDir.path}');
+      debugPrint('📁 Creado directorio $mediaType: ${typeDir.path}');
     }
     
     return typeDir;
@@ -56,18 +57,18 @@ class MediaStorageService {
       final tempFile = File(tempPath);
       final finalFile = await tempFile.copy(finalPath);
       
-      print('🎵 Audio guardado: ${finalFile.path}');
-      print('📊 Tamaño: ${await finalFile.length()} bytes');
+      debugPrint('🎵 Audio guardado: ${finalFile.path}');
+      debugPrint('📊 Tamaño: ${await finalFile.length()} bytes');
       
       // Eliminar archivo temporal si existe y es diferente
       if (tempPath != finalPath && await tempFile.exists()) {
         await tempFile.delete();
-        print('🗑️ Archivo temporal eliminado: $tempPath');
+        debugPrint('🗑️ Archivo temporal eliminado: $tempPath');
       }
       
       return finalFile.path;
     } catch (e) {
-      print('❌ Error guardando audio: $e');
+      debugPrint('❌ Error guardando audio: $e');
       rethrow;
     }
   }
@@ -86,7 +87,7 @@ class MediaStorageService {
       final tempFile = File(tempPath);
       final finalFile = await tempFile.copy(finalPath);
       
-      print('📷 Imagen guardada: ${finalFile.path}');
+      debugPrint('📷 Imagen guardada: ${finalFile.path}');
       
       if (tempPath != finalPath && await tempFile.exists()) {
         await tempFile.delete();
@@ -94,7 +95,7 @@ class MediaStorageService {
       
       return finalFile.path;
     } catch (e) {
-      print('❌ Error guardando imagen: $e');
+      debugPrint('❌ Error guardando imagen: $e');
       rethrow;
     }
   }
@@ -113,7 +114,7 @@ class MediaStorageService {
       final tempFile = File(tempPath);
       final finalFile = await tempFile.copy(finalPath);
       
-      print('🎬 Video guardado: ${finalFile.path}');
+      debugPrint('🎬 Video guardado: ${finalFile.path}');
       
       if (tempPath != finalPath && await tempFile.exists()) {
         await tempFile.delete();
@@ -121,7 +122,7 @@ class MediaStorageService {
       
       return finalFile.path;
     } catch (e) {
-      print('❌ Error guardando video: $e');
+      debugPrint('❌ Error guardando video: $e');
       rethrow;
     }
   }
@@ -132,7 +133,7 @@ class MediaStorageService {
       final file = File(filePath);
       return await file.exists();
     } catch (e) {
-      print('❌ Error verificando archivo: $e');
+      debugPrint('❌ Error verificando archivo: $e');
       return false;
     }
   }
@@ -146,7 +147,7 @@ class MediaStorageService {
       }
       return 0;
     } catch (e) {
-      print('❌ Error obteniendo tamaño de archivo: $e');
+      debugPrint('❌ Error obteniendo tamaño de archivo: $e');
       return 0;
     }
   }
@@ -157,12 +158,12 @@ class MediaStorageService {
       final file = File(filePath);
       if (await file.exists()) {
         await file.delete();
-        print('🗑️ Archivo eliminado: $filePath');
+        debugPrint('🗑️ Archivo eliminado: $filePath');
         return true;
       }
       return false;
     } catch (e) {
-      print('❌ Error eliminando archivo: $e');
+      debugPrint('❌ Error eliminando archivo: $e');
       return false;
     }
   }
@@ -180,12 +181,12 @@ class MediaStorageService {
           
           if (daysDiff > maxDays) {
             await entity.delete();
-            print('🗑️ Archivo antiguo eliminado: ${entity.path}');
+            debugPrint('🗑️ Archivo antiguo eliminado: ${entity.path}');
           }
         }
       }
     } catch (e) {
-      print('❌ Error limpiando archivos antiguos: $e');
+      debugPrint('❌ Error limpiando archivos antiguos: $e');
     }
   }
 
@@ -221,7 +222,7 @@ class MediaStorageService {
         'storagePath': mediaDir.path,
       };
     } catch (e) {
-      print('❌ Error obteniendo estadísticas: $e');
+      debugPrint('❌ Error obteniendo estadísticas: $e');
       return {};
     }
   }
@@ -230,7 +231,7 @@ class MediaStorageService {
   static void inicializarConHistorial(List<String> audioUrls) {
     // Este método es para compatibilidad con el historial
     // Las URLs del servidor se manejan directamente desde los comentarios
-    print('📚 MediaStorageService inicializado con ${audioUrls.length} URLs de historial');
+    debugPrint('📚 MediaStorageService inicializado con ${audioUrls.length} URLs de historial');
     // Por ahora no necesitamos hacer nada especial, 
     // ya que las URLs del servidor se reproducen directamente
   }

@@ -112,8 +112,16 @@ const handleSocketConnection = async (socket, io) => {
           user_nombre: user.username,
           text: content || '',
           media_id: mediaId || null,
-        }).then(() => {
+        }).then(async () => {
           console.log('✅ Mensaje guardado en SQLite:', messageId);
+          // Contar comentarios después de guardar
+          const comentariosTexto = await sqlite.countComentariosTexto(roomId);
+          const comentariosAudio = await sqlite.countComentariosAudio(roomId);
+          io.emit('comentarios_actualizados', {
+            contenidoId: roomId,
+            comentariosTexto,
+            comentariosAudio
+          });
         }).catch(dbErr => {
           console.error('⚠️ Error guardando mensaje en SQLite:', dbErr.message);
         });
@@ -133,7 +141,7 @@ const handleSocketConnection = async (socket, io) => {
           roomId: roomId,
           reactions: [],
           readBy: [],
-            isDeleted: false,
+          isDeleted: false,
           createdAt: nowIso,
           updatedAt: nowIso
         };

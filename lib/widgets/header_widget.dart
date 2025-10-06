@@ -33,7 +33,7 @@ class HeaderWidget extends StatelessWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withValues(alpha: 0.1),
             blurRadius: 4,
             offset: const Offset(0, 2),
           ),
@@ -109,10 +109,10 @@ class HeaderWidget extends StatelessWidget {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.25),
+                              color: Colors.white.withValues(alpha: 0.25),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: Colors.lightBlueAccent.withOpacity(0.5),
+                                color: Colors.lightBlueAccent.withValues(alpha: 0.5),
                                 width: 1,
                               ),
                             ),
@@ -121,14 +121,14 @@ class HeaderWidget extends StatelessWidget {
                               children: [
                                 Icon(
                                   Icons.download_done,
-                                  color: Colors.white.withOpacity(0.9),
+                                  color: Colors.white.withValues(alpha: 0.9),
                                   size: 14,
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
                                   '$suscritos',
                                   style: TextStyle(
-                                    color: Colors.white.withOpacity(0.95),
+                                    color: Colors.white.withValues(alpha: 0.95),
                                     fontSize: 11,
                                     fontWeight: FontWeight.w600,
                                   ),
@@ -143,10 +143,10 @@ class HeaderWidget extends StatelessWidget {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.25),
+                              color: Colors.white.withValues(alpha: 0.25),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: Colors.lightGreenAccent.withOpacity(0.5),
+                                color: Colors.lightGreenAccent.withValues(alpha: 0.5),
                                 width: 1,
                               ),
                             ),
@@ -162,7 +162,7 @@ class HeaderWidget extends StatelessWidget {
                                 Text(
                                   '$miembrosConectados',
                                   style: TextStyle(
-                                    color: Colors.white.withOpacity(0.95),
+                                    color: Colors.white.withValues(alpha: 0.95),
                                     fontSize: 11,
                                     fontWeight: FontWeight.w600,
                                   ),

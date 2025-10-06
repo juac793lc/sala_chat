@@ -409,23 +409,23 @@ class RoomsResult extends ApiResult {
   final PaginationModel? pagination;
 
   RoomsResult({
-    required bool success,
+    required super.success,
     this.rooms,
     this.pagination,
-    String? message,
-    String? error,
-  }) : super(success: success, message: message, error: error);
+    super.message,
+    super.error,
+  });
 }
 
 class RoomResult extends ApiResult {
   final RoomModel? room;
 
   RoomResult({
-    required bool success,
+    required super.success,
     this.room,
-    String? message,
-    String? error,
-  }) : super(success: success, message: message, error: error);
+    super.message,
+    super.error,
+  });
 }
 
 class MessagesResult extends ApiResult {
@@ -433,21 +433,21 @@ class MessagesResult extends ApiResult {
   final PaginationModel? pagination;
 
   MessagesResult({
-    required bool success,
+    required super.success,
     this.messages,
     this.pagination,
-    String? message,
-    String? error,
-  }) : super(success: success, message: message, error: error);
+    super.message,
+    super.error,
+  });
 }
 
 class FileUploadResult extends ApiResult {
   final UploadedFile? file;
 
   FileUploadResult({
-    required bool success,
+    required super.success,
     this.file,
-    String? message,
-    String? error,
-  }) : super(success: success, message: message, error: error);
+    super.message,
+    super.error,
+  });
 }

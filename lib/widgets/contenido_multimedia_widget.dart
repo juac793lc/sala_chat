@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import '../models/contenido_multimedia.dart';
-import 'dart:html' as html;
+import 'dart:html' as html; // ignore: avoid_web_libraries_in_flutter
 import 'dart:ui_web' as ui;
 
 class ContenidoMultimediaWidget extends StatefulWidget {
@@ -82,12 +82,14 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
         }
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error al reproducir audio: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al reproducir audio: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -122,7 +124,7 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
                           color: _isPlaying ? Colors.red : Colors.green,
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.2),
+                              color: Colors.black.withValues(alpha: 0.2),
                               blurRadius: 4,
                               offset: const Offset(0, 2),
                             ),
@@ -194,7 +196,7 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.6),
+                color: Colors.black.withValues(alpha: 0.6),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Row(
@@ -381,7 +383,7 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
   Widget _buildContenidoPreview() {
     switch (widget.contenido.tipo) {
       case TipoContenido.imagen:
-        return Container(
+        return SizedBox(
           height: 250,
           width: double.infinity,
           child: Stack(
@@ -400,7 +402,7 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.6),
+                    color: Colors.black.withValues(alpha: 0.6),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Row(
@@ -445,7 +447,7 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
         );
         
       case TipoContenido.video:
-        return Container(
+        return SizedBox(
           height: 250,
           width: double.infinity,
           child: Stack(
@@ -466,7 +468,7 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.6),
+                    color: Colors.black.withValues(alpha: 0.6),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Row(
@@ -518,7 +520,14 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFFB2DFDB), // Verde-azulado suave
+            Color(0xFFBBDEFB), // Azul suave
+          ],
+        ),
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
@@ -551,7 +560,7 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
                             height: 24,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: Colors.blue.withOpacity(0.1),
+                              color: Colors.blue.withValues(alpha: 0.1),
                             ),
                             child: Icon(
                               Icons.chat_bubble_outline,
@@ -610,7 +619,7 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
                             height: 24,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: Colors.green.withOpacity(0.1),
+                              color: Colors.green.withValues(alpha: 0.1),
                             ),
                             child: Icon(
                               Icons.mic_none,
@@ -681,7 +690,7 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
         
         return HtmlElementView(viewType: videoId);
       } catch (e) {
-        print('Error creando reproductor de video: $e');
+        debugPrint('Error creando reproductor de video: $e');
         return Container(
           color: Colors.black,
           child: const Center(

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/material.dart';
 
 class AuthService {
   static const String baseUrl = 'http://localhost:3000/api/auth';
@@ -41,8 +42,8 @@ class AuthService {
     required String username,
   }) async {
     try {
-      print('🔍 Intentando conectar a: $baseUrl/join');
-      print('📤 Enviando usuario: $username');
+      debugPrint('🔍 Intentando conectar a: $baseUrl/join');
+      debugPrint('📤 Enviando usuario: $username');
       
       final response = await http.post(
         Uri.parse('$baseUrl/join'),
@@ -52,15 +53,15 @@ class AuthService {
         }),
       ).timeout(Duration(seconds: 10));
 
-      print('📥 Respuesta status: ${response.statusCode}');
-      print('📥 Respuesta headers: ${response.headers}');
-      print('📥 Respuesta body: ${response.body}');
+      debugPrint('📥 Respuesta status: ${response.statusCode}');
+      debugPrint('📥 Respuesta headers: ${response.headers}');
+      debugPrint('📥 Respuesta body: ${response.body}');
 
       final data = jsonDecode(response.body);
 
       if (response.statusCode == 200) {
         await _saveToken(data['token']);
-        print('✅ Token guardado correctamente');
+        debugPrint('✅ Token guardado correctamente');
         return AuthResult(
           success: true,
           user: UserModel.fromJson(data['user']),
@@ -68,15 +69,15 @@ class AuthService {
           isNewUser: data['isNewUser'] ?? false,
         );
       } else {
-        print('❌ Error del servidor: ${data['error']}');
+        debugPrint('❌ Error del servidor: ${data['error']}');
         return AuthResult(
           success: false,
           error: data['error'] ?? 'Error uniéndose al chat',
         );
       }
     } catch (e) {
-      print('❌ Excepción capturada: $e');
-      print('❌ Tipo de excepción: ${e.runtimeType}');
+      debugPrint('❌ Excepción capturada: $e');
+      debugPrint('❌ Tipo de excepción: ${e.runtimeType}');
       return AuthResult(
         success: false,
         error: 'Error de conexión: $e',
@@ -173,7 +174,7 @@ class AuthService {
         headers: await getHeaders(),
       );
     } catch (e) {
-      print('Error en logout: $e');
+      debugPrint('Error en logout: $e');
     } finally {
       await removeToken();
     }

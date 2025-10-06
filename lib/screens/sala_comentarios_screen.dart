@@ -77,7 +77,7 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
     if (cached != null) {
       _currentUserId = cached.id;
       _currentUserName = cached.username;
-      print('👤 Usuario desde cache: ${cached.username} (${cached.id})');
+      debugPrint('👤 Usuario desde cache: ${cached.username} (${cached.id})');
     } else {
       _obtenerUsuarioActual();
     }
@@ -111,10 +111,10 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
           _currentUserId = authResult.user!.id;
           _currentUserName = authResult.user!.username;
         });
-        print('👤 Usuario actual cargado: ${authResult.user!.username} (${authResult.user!.id})');
+        debugPrint('👤 Usuario actual cargado: ${authResult.user!.username} (${authResult.user!.id})');
       }
     } catch (e) {
-      print('Error obteniendo usuario actual: $e');
+      debugPrint('Error obteniendo usuario actual: $e');
     }
   }
 
@@ -123,7 +123,7 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
   void _configurarSocketListeners() {
     // Siempre reconfigurar listeners para esta sala específica
     if (_listenersConfigurados) {
-      print('🔄 Reconfigurado listeners para nueva sala');
+      debugPrint('🔄 Reconfigurado listeners para nueva sala');
       // Remover listener previo si existe
       if (_messageListener != null) {
         SocketService.instance.off('new_message', _messageListener!);
@@ -135,7 +135,7 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
       final incomingRoom = data['roomId'] ?? data['room'];
       if (incomingRoom != widget.contenido.id) {
         // Debug detallado si se descarta
-        print('🚫 Mensaje descartado por room mismatch. esperado=${widget.contenido.id} recibido=$incomingRoom keys=${data.keys.toList()}');
+        debugPrint('🚫 Mensaje descartado por room mismatch. esperado=${widget.contenido.id} recibido=$incomingRoom keys=${data.keys.toList()}');
         return; // Solo mensajes de esta sala
       }
       
@@ -144,10 +144,10 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
         final autorNombre = data['sender']?['username'] ?? data['username'] ?? 'Usuario';
         
         // Debug: Comparar IDs
-  print('📬 Nuevo mensaje recibido: ${data['content']} (room=$incomingRoom)');
-        print('🆔 Autor ID del mensaje: $autorId');
-        print('🆔 Mi ID actual: $_currentUserId');
-        print('🎯 Es mi mensaje: ${_currentUserId != null && autorId == _currentUserId}');
+        debugPrint('📬 Nuevo mensaje recibido: ${data['content']} (room=$incomingRoom)');
+        debugPrint('🆔 Autor ID del mensaje: $autorId');
+        debugPrint('🆔 Mi ID actual: $_currentUserId');
+        debugPrint('🎯 Es mi mensaje: ${_currentUserId != null && autorId == _currentUserId}');
         
         // Convertir datos del servidor directamente a Comentario
         // Determinar si es audio: type=='audio' o mediaId presente o fileUrl presente
@@ -182,32 +182,32 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
                 final prevSeq = comentarios[idxTemp].ordenSecuencia;
                 comentarios[idxTemp] = comentario.copyWith(ordenSecuencia: prevSeq);
               });
-              print('🟢 Reemplazado mensaje optimista por definitivo (${comentario.id})');
+              debugPrint('🟢 Reemplazado mensaje optimista por definitivo (${comentario.id})');
             } else {
               _agregarComentarioDelServidor(comentario);
             }
         }
         
       } catch (e) {
-        print('❌ Error procesando mensaje del servidor: $e');
+        debugPrint('❌ Error procesando mensaje del servidor: $e');
       }
     };
     
     // Registrar el listener
     SocketService.instance.on('new_message', _messageListener!);
     _listenersConfigurados = true;
-    print('✅ Listeners configurados correctamente');
+    debugPrint('✅ Listeners configurados correctamente');
   }
   
   void _unirseASala() {
     // Forzar join siempre que se abre la pantalla (cambia audio/texto o reentra)
     SocketService.instance.joinRoomForce(widget.contenido.id, force: true);
-    print('🏠 (force) Uniéndose a sala: ${widget.contenido.id}');
+    debugPrint('🏠 (force) Uniéndose a sala: ${widget.contenido.id}');
     
     // Verificar estado de conexión y rejoin si es necesario
     Future.delayed(const Duration(milliseconds: 500), () {
       if (mounted && !SocketService.instance.isInRoom(widget.contenido.id)) {
-        print('⚠️ Sala no confirmada, reintentando join...');
+        debugPrint('⚠️ Sala no confirmada, reintentando join...');
         SocketService.instance.joinRoomForce(widget.contenido.id, force: true);
       }
     });
@@ -217,7 +217,7 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
     // Evitar duplicados - no agregar si ya existe
     final yaExiste = comentarios.any((c) => c.id == comentario.id);
     if (yaExiste) {
-      print('🔄 Comentario ${comentario.id} ya existe, ignorando');
+      debugPrint('🔄 Comentario ${comentario.id} ya existe, ignorando');
       return;
     }
     
@@ -244,7 +244,7 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
       }
     });
     
-    print('✅ Nuevo comentario del servidor agregado: ${comentario.contenido}');
+    debugPrint('✅ Nuevo comentario del servidor agregado: ${comentario.contenido}');
   }
 
   @override
@@ -253,7 +253,7 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
     // Remover listener específico al salir
     if (_messageListener != null) {
       SocketService.instance.off('new_message', _messageListener!);
-      print('🧹 Listener removido para sala: ${widget.contenido.id}');
+      debugPrint('🧹 Listener removido para sala: ${widget.contenido.id}');
     }
     // NO hacer leaveRoom para mantener suscripción activa en socket
     // SocketService.instance.leaveRoom(widget.contenido.id);
@@ -271,7 +271,7 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
 
   void _cargarComentarios() async {
     try {
-      print('📚 Cargando historial para contenido: ${widget.contenido.id}');
+      debugPrint('📚 Cargando historial para contenido: \\${widget.contenido.id}');
       
       // Cargar comentarios del historial usando el ID del contenido como roomId
       final historial = await HistoryService.cargarHistorialRoom(widget.contenido.id);
@@ -301,7 +301,7 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
                 .fold<int>(0, (prev, el) => el > prev ? el : prev);
           }
         });
-        print('✅ Historial cargado: ${comentarios.length} comentarios (${widget.esAudio ? 'audio' : 'texto'})');
+        debugPrint('✅ Historial cargado: \\${comentarios.length} comentarios (\\${widget.esAudio ? 'audio' : 'texto'})');
         // Auto scroll al final tras el primer frame para mostrar el último mensaje
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (_scrollController.hasClients) {
@@ -316,12 +316,12 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
         if (audioUrls.isNotEmpty) {
           // Actualizar el servicio de audio con las URLs del servidor
           MediaStorageService.inicializarConHistorial(audioUrls);
-          print('🎵 Audio historial inicializado: ${audioUrls.length} archivos');
+          debugPrint('🎵 Audio historial inicializado: ${audioUrls.length} archivos');
         }
       }
       
     } catch (e) {
-      print('❌ Error cargando historial: $e');
+      debugPrint('❌ Error cargando historial: $e');
       if (mounted) {
         setState(() {
           comentarios = [];
@@ -340,14 +340,13 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
     }
     
     if (!debeAgregar) {
-      print('🚫 Comentario ${comentario.tipo.name} ignorado en sala ${widget.esAudio ? 'audio' : 'texto'}');
+      debugPrint('🚫 Comentario ${comentario.tipo.name} ignorado en sala ${widget.esAudio ? 'audio' : 'texto'}');
       return;
     }
     
     setState(() {
       final existingIndex = comentarios.indexWhere((c) => c.id == comentario.id);
       if (existingIndex >= 0) {
-        // Conservar la secuencia previa para estabilidad
         final prevSeq = comentarios[existingIndex].ordenSecuencia;
         comentarios[existingIndex] = comentario.copyWith(ordenSecuencia: prevSeq);
       } else {
@@ -424,7 +423,7 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
               borderRadius: BorderRadius.circular(12),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
+                  color: Colors.black.withValues(alpha: 0.1),
                   blurRadius: 8,
                   offset: const Offset(0, 2),
                 ),
@@ -493,7 +492,7 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
               color: Colors.white,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withValues(alpha: 0.05),
                   blurRadius: 10,
                   offset: const Offset(0, -5),
                 ),
@@ -514,7 +513,7 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
     // Para la sala de comentarios, mostrar solo fotos. Videos NO se muestran para dejar la sala libre
     switch (widget.contenido.tipo) {
       case TipoContenido.imagen:
-        return Container(
+        return SizedBox(
           width: double.infinity,
           height: 200,
           child: ClipRRect(

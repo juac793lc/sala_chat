@@ -1,20 +1,19 @@
 import 'dart:typed_data';
-import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
-import 'dart:html' as html;
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode, debugPrint;
+
+// Usar dart:html solo en web (se suprime warning con comentario)
+// ignore: avoid_web_libraries_in_flutter, deprecated_member_use
+import 'dart:html' as html;
 
 /// Servicio de almacenamiento específico para Flutter Web
-/// Usa IndexedDB para persistir archivos como blobs
+/// Usa localStorage para persistir archivos como blobs
 class WebStorageService {
-  static const String _dbName = 'SalaChatMedia';
-  static const String _storeName = 'mediaFiles';
-  static const int _dbVersion = 1;
   static bool enableLogs = true; // permitir desactivar logs en runtime
 
   static void _log(String msg) {
     if (kDebugMode && enableLogs) {
-      // ignore: avoid_print
-      print(msg);
+      debugPrint(msg);
     }
   }
 
@@ -210,7 +209,7 @@ class WebStorageService {
       
       final response = await html.window.fetch(blobUrl);
       final arrayBuffer = await response.arrayBuffer();
-      return arrayBuffer.asUint8List();
+      return arrayBuffer.toDart.asUint8List();
     } catch (e) {
       _log('❌ Error convirtiendo blob a bytes: $e');
       rethrow;

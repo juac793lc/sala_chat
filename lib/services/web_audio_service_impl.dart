@@ -1,4 +1,5 @@
-import 'dart:html' as html;
+import 'dart:html' as html; // ignore: avoid_web_libraries_in_flutter
+import 'package:flutter/material.dart';
 import '../models/comentario.dart';
 
 /// Servicio de reproducción de audio optimizado para Flutter Web
@@ -44,15 +45,15 @@ class WebAudioService {
 
   /// Inicializa el servicio (equivalente a initialize())
   static void initialize() {
-    print('🌐 WebAudioService inicializado para Flutter Web');
+    debugPrint('🌐 WebAudioService inicializado para Flutter Web');
   }
 
   /// Actualiza la lista de audios
   static void updateAudioList(List<Comentario> audioComments) {
     _audioComments = audioComments.where((c) => c.tipo == TipoComentario.audio).toList();
-    print('📋 Lista de audios actualizada: ${_audioComments.length} audios');
+    debugPrint('📋 Lista de audios actualizada: ${_audioComments.length} audios');
     for (int i = 0; i < _audioComments.length; i++) {
-      print('   $i: ${_audioComments[i].contenido.substring(0, 30)}...');
+      debugPrint('   $i: ${_audioComments[i].contenido.substring(0, 30)}...');
     }
   }
 
@@ -60,12 +61,12 @@ class WebAudioService {
   static Future<void> playAudioAtIndex(int index) async {
     try {
       if (index < 0 || index >= _audioComments.length) {
-        print('❌ Índice inválido: $index, lista tiene ${_audioComments.length} audios');
+        debugPrint('❌ Índice inválido: $index, lista tiene ${_audioComments.length} audios');
         return;
       }
 
-      print('▶️ Reproduciendo audio $index de ${_audioComments.length}');
-      print('🎯 Audio URL: ${_audioComments[index].contenido}');
+      debugPrint('▶️ Reproduciendo audio $index de ${_audioComments.length}');
+      debugPrint('🎯 Audio URL: ${_audioComments[index].contenido}');
 
       // Detener audio actual si existe
       if (_currentAudio != null) {
@@ -82,23 +83,23 @@ class WebAudioService {
       _currentAudio!.crossOrigin = 'anonymous'; // Para CORS
       _currentAudio!.preload = 'metadata'; // Cargar metadatos primero
       
-      print('🌐 Reproduciendo con HTML5 Audio: ${audio.contenido}');
-      print('🔍 Verificando si el navegador puede reproducir WAV...');
+      debugPrint('🌐 Reproduciendo con HTML5 Audio: ${audio.contenido}');
+      debugPrint('🔍 Verificando si el navegador puede reproducir WAV...');
       
       // Verificar soporte de formato
       final canPlayWav = _currentAudio!.canPlayType('audio/wav');
       final canPlayMp3 = _currentAudio!.canPlayType('audio/mpeg');
-      print('📋 Soporte WAV: $canPlayWav, MP3: $canPlayMp3');
+      debugPrint('📋 Soporte WAV: $canPlayWav, MP3: $canPlayMp3');
 
       // Configurar event listeners
       _currentAudio!.onLoadedMetadata.listen((_) {
         final durationValue = _currentAudio!.duration;
         if (!durationValue.isNaN && durationValue.isFinite && durationValue > 0) {
           final duration = Duration(seconds: durationValue.toInt());
-          print('📊 Duración cargada: ${duration.inSeconds}s');
+          debugPrint('📊 Duración cargada: ${duration.inSeconds}s');
           _notifyProgressChanged(Duration.zero, duration);
         } else {
-          print('⚠️ Duración no disponible o inválida: $durationValue');
+          debugPrint('⚠️ Duración no disponible o inválida: $durationValue');
         }
       });
 
@@ -115,29 +116,29 @@ class WebAudioService {
       });
 
       _currentAudio!.onPlay.listen((_) {
-        print('🎵 Audio iniciado');
+        debugPrint('🎵 Audio iniciado');
         _isPlaying = true;
         _notifyPlaybackStateChanged();
       });
 
       _currentAudio!.onPause.listen((_) {
-        print('⏸️ Audio pausado');
+        debugPrint('⏸️ Audio pausado');
         _isPlaying = false;
         _notifyPlaybackStateChanged();
       });
 
       _currentAudio!.onEnded.listen((_) {
-        print('🎵 Audio completado! Índice actual: $_currentIndex de ${_audioComments.length}');
-        print('🔄 Ejecutando _playNext()...');
+        debugPrint('🎵 Audio completado! Índice actual: $_currentIndex de ${_audioComments.length}');
+        debugPrint('🔄 Ejecutando _playNext()...');
         _isPlaying = false;
         _playNext();
       });
 
       _currentAudio!.onError.listen((event) {
-        print('❌ Error de HTML5 Audio: ${event.toString()}');
-        print('🔍 Error details: ${_currentAudio!.error?.code} - ${_currentAudio!.error?.message}');
-        print('🔍 Network state: ${_currentAudio!.networkState}');
-        print('🔍 Ready state: ${_currentAudio!.readyState}');
+        debugPrint('❌ Error de HTML5 Audio: ${event.toString()}');
+        debugPrint('🔍 Error details: ${_currentAudio!.error?.code} - ${_currentAudio!.error?.message}');
+        debugPrint('🔍 Network state: ${_currentAudio!.networkState}');
+        debugPrint('🔍 Ready state: ${_currentAudio!.readyState}');
         _isPlaying = false;
         _notifyPlaybackStateChanged();
       });
@@ -146,7 +147,7 @@ class WebAudioService {
       await _currentAudio!.play();
       
     } catch (e) {
-      print('❌ Error reproduciendo audio: $e');
+      debugPrint('❌ Error reproduciendo audio: $e');
       _isPlaying = false;
       _notifyPlaybackStateChanged();
     }
@@ -154,15 +155,15 @@ class WebAudioService {
 
   /// Reproduce el siguiente audio en la lista automáticamente
   static void _playNext() {
-    print('🔄 _playNext llamado. Índice actual: $_currentIndex');
-    print('📋 Total de audios: ${_audioComments.length}');
+    debugPrint('🔄 _playNext llamado. Índice actual: $_currentIndex');
+    debugPrint('📋 Total de audios: ${_audioComments.length}');
     
     if (_currentIndex >= 0 && _currentIndex < _audioComments.length - 1) {
       final nextIndex = _currentIndex + 1;
-      print('⏭️ Reproduciendo siguiente audio: $nextIndex');
+      debugPrint('⏭️ Reproduciendo siguiente audio: $nextIndex');
       playAudioAtIndex(nextIndex);
     } else {
-      print('⏹️ No hay más audios para reproducir');
+      debugPrint('⏹️ No hay más audios para reproducir');
       _currentIndex = -1;
       _isPlaying = false;
       _notifyPlaybackStateChanged();

@@ -23,6 +23,30 @@ class ChatPrincipalScreen extends StatefulWidget {
 }
 
 class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Escuchar evento de actualización de comentarios en tiempo real
+    SocketService.instance.socket?.on('comentarios_actualizados', (data) {
+      if (data == null || !mounted) return;
+      final contenidoId = data['contenidoId']?.toString();
+      if (contenidoId == null) return;
+      setState(() {
+        final idx = contenidoMultimedia.indexWhere((c) => c.id == contenidoId);
+        if (idx != -1) {
+          if (data['comentariosTexto'] != null) {
+            contenidoMultimedia[idx] = contenidoMultimedia[idx].copyWith(comentariosTexto: data['comentariosTexto']);
+          }
+          if (data['comentariosAudio'] != null) {
+            contenidoMultimedia[idx] = contenidoMultimedia[idx].copyWith(comentariosAudio: data['comentariosAudio']);
+          }
+        }
+      });
+    });
+    _loadCurrentUser();
+    _cargaInicialFeed();
+    _setupSocketConnection();
+  }
   bool _mostrarBliz = false;
   String? _currentUserName;
   String? _currentUserAvatar;
@@ -41,13 +65,6 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
   int _usuariosConectados = 2;
   int _usuariosSuscritos = 0;
 
-  @override
-  void initState() {
-    super.initState();
-    _loadCurrentUser();
-    _cargaInicialFeed();
-    _setupSocketConnection();
-  }
 
   Future<void> _cargaInicialFeed() async {
     setState(() { _cargandoInicial = true; });
@@ -78,10 +95,10 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
           _currentUserName = result.user!.username;
           _currentUserAvatar = result.user!.avatar;
         });
-        print('👤 Usuario principal cargado: ${result.user!.username}');
+        debugPrint('👤 Usuario principal cargado: ${result.user!.username}');
       }
     } catch (e) {
-      print('Error cargando usuario: $e');
+      debugPrint('Error cargando usuario: $e');
     }
   }
 
@@ -103,7 +120,7 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
           _usuariosConectados = data['totalConnected'] ?? _usuariosConectados;
           _usuariosSuscritos = data['totalRegistered'] ?? _usuariosSuscritos;
         });
-        print('🟢 Usuario online: ${data['username']} | Conectados: $_usuariosConectados | Total con app: $_usuariosSuscritos');
+        debugPrint('🟢 Usuario online: ${data['username']} | Conectados: $_usuariosConectados | Total con app: $_usuariosSuscritos');
       }
     });
 
@@ -115,7 +132,7 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
           _usuariosConectados = data['totalConnected'] ?? _usuariosConectados;
           _usuariosSuscritos = data['totalRegistered'] ?? _usuariosSuscritos;
         });
-        print('🔴 Usuario offline: ${data['username']} | Conectados: $_usuariosConectados | Total con app: $_usuariosSuscritos');
+        debugPrint('🔴 Usuario offline: ${data['username']} | Conectados: $_usuariosConectados | Total con app: $_usuariosSuscritos');
       }
     });
 
@@ -128,13 +145,13 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
 
     // Escuchar multimedia compartido (nuevo evento para feed)
     SocketService.instance.on('multimedia_compartido', (data) {
-      print('🎉 RECIBIDO multimedia_compartido: ${data.toString()}');
+      debugPrint('🎉 RECIBIDO multimedia_compartido: ${data.toString()}');
       if (mounted) {
-        print('💫 Procesando multimedia_compartido en UI...');
+        debugPrint('💫 Procesando multimedia_compartido en UI...');
         _agregarContenidoDesdeSocket(data);
-        print('✅ Multimedia_compartido procesado');
+        debugPrint('✅ Multimedia_compartido procesado');
       } else {
-        print('❌ Widget no mounted, ignorando multimedia_compartido');
+        debugPrint('❌ Widget no mounted, ignorando multimedia_compartido');
       }
     });
 
@@ -175,12 +192,12 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
   }
 
   void _agregarContenidoDesdeSocket(Map<String, dynamic> data) {
-    print('🔍 _agregarContenidoDesdeSocket llamado con data: $data');
+    debugPrint('🔍 _agregarContenidoDesdeSocket llamado con data: $data');
     
     // Determinar tipo de contenido
     TipoContenido tipo = TipoContenido.imagen;
     final tipoString = data['tipo']?.toString() ?? '';
-    print('🎭 Tipo detectado: $tipoString');
+    debugPrint('🎭 Tipo detectado: $tipoString');
     
     if (tipoString.contains('audio')) {
       tipo = TipoContenido.audio;
@@ -201,16 +218,16 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
     );
 
     if (_idsContenido.contains(nuevoContenido.id)) {
-      print('⚠️ Contenido ya existe con ID: ${nuevoContenido.id}');
+      debugPrint('⚠️ Contenido ya existe con ID: ${nuevoContenido.id}');
       return; // ya existe (probablemente vino por HTTP o historial socket)
     }
 
-    print('🎯 Agregando nuevo contenido a la UI: ${nuevoContenido.id}');
+    debugPrint('🎯 Agregando nuevo contenido a la UI: ${nuevoContenido.id}');
     setState(() {
       _idsContenido.add(nuevoContenido.id);
       contenidoMultimedia.insert(0, nuevoContenido);
     });
-    print('✅ Contenido agregado. Total items: ${contenidoMultimedia.length}');
+    debugPrint('✅ Contenido agregado. Total items: ${contenidoMultimedia.length}');
   }
 
   void _cargarHistorialContenido(List<dynamic> historial) {
@@ -256,7 +273,7 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
   List<ContenidoMultimedia> contenidoMultimedia = [];
 
   void _navegarASalaComentarios(ContenidoMultimedia contenido, bool esAudio) {
-    Navigator.push(
+    Navigator.push<int>(
       context,
       MaterialPageRoute(
         builder: (context) => SalaComentariosScreen(
@@ -264,7 +281,20 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
           esAudio: esAudio,
         ),
       ),
-    );
+    ).then((nuevoConteo) {
+      if (nuevoConteo != null) {
+        setState(() {
+          final idx = contenidoMultimedia.indexWhere((c) => c.id == contenido.id);
+          if (idx != -1) {
+            if (esAudio) {
+              contenidoMultimedia[idx] = contenidoMultimedia[idx].copyWith(comentariosAudio: nuevoConteo);
+            } else {
+              contenidoMultimedia[idx] = contenidoMultimedia[idx].copyWith(comentariosTexto: nuevoConteo);
+            }
+          }
+        });
+      }
+    });
   }
 
   void _agregarContenido(ContenidoMultimedia nuevoContenido) {
@@ -276,8 +306,11 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
 
     // Enviar por socket para que otros usuarios lo vean
     String tipoString = 'image';
-    if (nuevoContenido.tipo == TipoContenido.video) tipoString = 'video';
-    else if (nuevoContenido.tipo == TipoContenido.audio) tipoString = 'audio';
+    if (nuevoContenido.tipo == TipoContenido.video) {
+      tipoString = 'video';
+    } else if (nuevoContenido.tipo == TipoContenido.audio) {
+      tipoString = 'audio';
+    }
 
     SocketService.instance.emit('nuevo_multimedia', {
       'roomId': widget.roomId,

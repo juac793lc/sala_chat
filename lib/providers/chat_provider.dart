@@ -70,7 +70,7 @@ class ChatProvider with ChangeNotifier {
         final msg = MessageModel.fromJson(Map<String,dynamic>.from(data));
         _addMessage(msg);
       } catch (e) {
-        print('❌ Error parseando mensaje: $e');
+        debugPrint('❌ Error parseando mensaje: $e');
       }
     });
 
@@ -88,7 +88,7 @@ class ChatProvider with ChangeNotifier {
         _onlineUsers[user.id] = user;
         notifyListeners();
       } catch (e) {
-        print('❌ Error procesando user_online: $e');
+        debugPrint('❌ Error procesando user_online: $e');
       }
     });
 
@@ -280,7 +280,7 @@ class ChatProvider with ChangeNotifier {
         notifyListeners();
       }
     } catch (e) {
-      print('Error cargando mensajes: $e');
+      debugPrint('Error cargando mensajes: $e');
     }
   }
 

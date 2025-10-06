@@ -93,6 +93,17 @@ setInterval(() => {
 }, 5000);
 
 module.exports = {
+  async countComentariosTexto(contenidoId) {
+    const database = await initDb();
+    const result = database.exec('SELECT COUNT(*) as total FROM messages WHERE room_id = ? AND (media_id IS NULL OR media_id = "")', [contenidoId]);
+    return result.length > 0 && result[0].values.length > 0 ? result[0].values[0][0] : 0;
+  },
+
+  async countComentariosAudio(contenidoId) {
+    const database = await initDb();
+    const result = database.exec('SELECT COUNT(*) as total FROM messages WHERE room_id = ? AND media_id IS NOT NULL AND media_id != ""', [contenidoId]);
+    return result.length > 0 && result[0].values.length > 0 ? result[0].values[0][0] : 0;
+  },
   async ensureInit() {
     return await initDb();
   },

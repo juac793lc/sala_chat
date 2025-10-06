@@ -186,7 +186,7 @@ class _InputMultimediaWidgetState extends State<InputMultimediaWidget>
               borderRadius: BorderRadius.circular(28),
               boxShadow: [
                 BoxShadow(
-                  color: colores.last.withOpacity(0.35),
+                  color: colores.last.withValues(alpha: 0.35),
                   blurRadius: 8,
                   offset: const Offset(0, 4),
                 ),

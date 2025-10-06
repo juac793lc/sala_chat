@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart';
 import 'media_storage_service.dart';
 import 'web_storage_service.dart';
 
@@ -9,11 +10,11 @@ class PlatformStorageService {
   static Future<String> saveAudio(String pathOrUrl, {String? originalFileName}) async {
     if (kIsWeb) {
       // En web, el path es una blob URL
-      print('🌐 Guardando audio en web storage: $pathOrUrl');
+      debugPrint('🌐 Guardando audio en web storage: $pathOrUrl');
       return await WebStorageService.saveBlob(pathOrUrl, 'audio');
     } else {
       // En móvil, usar el servicio de archivos
-      print('📱 Guardando audio en móvil: $pathOrUrl');
+      debugPrint('📱 Guardando audio en móvil: $pathOrUrl');
       return await MediaStorageService.saveAudio(pathOrUrl, originalFileName: originalFileName);
     }
   }

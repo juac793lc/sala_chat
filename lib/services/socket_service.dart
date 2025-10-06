@@ -1,4 +1,5 @@
 import 'package:socket_io_client/socket_io_client.dart' as io;
+import 'package:flutter/material.dart';
 import 'auth_service.dart';
 
 class SocketService {
@@ -32,22 +33,22 @@ class SocketService {
   // Conectar al servidor (idempotente)
   Future<bool> connect() async {
     if (_isConnected && _socket != null) {
-      print('♻️ Reuso de conexión socket existente');
+      debugPrint('♻️ Reuso de conexión socket existente');
       return true;
     }
     if (_socket != null && _socket!.connected) {
       _isConnected = true;
-      print('♻️ Socket ya conectado (flag reparado)');
+      debugPrint('♻️ Socket ya conectado (flag reparado)');
       return true;
     }
     try {
       final token = await AuthService.getToken();
       if (token == null) {
-        print('❌ No hay token para conectar');
+        debugPrint('❌ No hay token para conectar');
         return false;
       }
 
-      print('🔑 Conectando con token: ${token.substring(0, 20)}...');
+      debugPrint('🔑 Conectando con token: ${token.substring(0, 20)}...');
 
       // Configurar socket (solo crear si no existe)
       _socket = io.io(
@@ -63,19 +64,19 @@ class SocketService {
       if (!_eventsRegistrados) {
         _socket!.onConnect((_) {
           _isConnected = true;
-            print('✅ Conectado al servidor de chat');
+            debugPrint('✅ Conectado al servidor de chat');
             _notifyCallbacks('connected', null);
         });
 
         // Debug global: log de cualquier evento recibido (excepto ping/pong internos)
         _socket!.onAny((event, data) {
           if (event == 'ping' || event == 'pong') return;
-          print('🌐 [onAny] event=$event dataKeys=${data is Map ? data.keys.toList() : data.runtimeType}');
+          debugPrint('🌐 [onAny] event=$event dataKeys=${data is Map ? data.keys.toList() : data.runtimeType}');
         });
 
         _socket!.onDisconnect((_) {
           _isConnected = false;
-          print('❌ Desconectado del servidor');
+          debugPrint('❌ Desconectado del servidor');
           // Guardar snapshot de salas actuales para intentar rejoin al reconectar
           _joinedRoomsSnapshotBeforeDisconnect = Set.from(_joinedRooms);
           _notifyCallbacks('disconnected', null);
@@ -83,24 +84,24 @@ class SocketService {
 
         _socket!.onConnectError((error) {
           _isConnected = false;
-          print('❌ Error de conexión: $error');
+          debugPrint('❌ Error de conexión: $error');
           _notifyCallbacks('connect_error', error);
         });
 
         _socket!.on('auth_error', (data) {
-          print('❌ Error de autenticación: $data');
+          debugPrint('❌ Error de autenticación: $data');
           _notifyCallbacks('auth_error', data);
           disconnect();
         });
 
         // Al conectar nuevamente, re-join a las salas que teníamos
         on('connected', (_) {
-          print('✨ Socket reconectado, verificando salas...');
+          debugPrint('✨ Socket reconectado, verificando salas...');
           final toRejoin = Set<String>.from(_joinedRooms);
           toRejoin.addAll(_joinedRoomsSnapshotBeforeDisconnect);
           
           if (toRejoin.isNotEmpty) {
-            print('🔁 Reuniéndose automáticamente a salas: ${toRejoin.join(', ')}');
+            debugPrint('🔁 Reuniéndose automáticamente a salas: ${toRejoin.join(', ')}');
             for (final room in toRejoin) {
               // Reset flags para permitir rejoin
               _joinedRooms.remove(room);
@@ -118,7 +119,7 @@ class SocketService {
         _setupChatEvents();
         _eventsRegistrados = true;
       } else {
-        print('🔁 Eventos ya registrados, no se duplican');
+        debugPrint('🔁 Eventos ya registrados, no se duplican');
       }
 
       // Conectar si aún no
@@ -127,7 +128,7 @@ class SocketService {
       }
       return true;
     } catch (e) {
-      print('❌ Error conectando socket: $e');
+      debugPrint('❌ Error conectando socket: $e');
       return false;
     }
   }
@@ -143,13 +144,13 @@ class SocketService {
 
     // Nuevo mensaje
     _socket!.on('new_message', (data) {
-      print('📬 Nuevo mensaje recibido: ${data['content']}');
+      debugPrint('📬 Nuevo mensaje recibido: ${data['content']}');
       _notifyCallbacks('new_message', data);
     });
 
     // Usuario online/offline
     _socket!.on('user_online', (data) {
-      print('🟢 Usuario online: ${data['username'] ?? data['userId']}');
+      debugPrint('🟢 Usuario online: ${data['username'] ?? data['userId']}');
       _usuariosConectados = data['totalConnected'] ?? (_usuariosConectados + 1);
       _usuariosSuscritos = data['totalRegistered'] ?? _usuariosSuscritos;
       _notifyCallbacks('user_online', data);
@@ -161,7 +162,7 @@ class SocketService {
     });
 
     _socket!.on('user_offline', (data) {
-      print('🔴 Usuario offline: ${data['username'] ?? data['userId']}');
+      debugPrint('🔴 Usuario offline: ${data['username'] ?? data['userId']}');
       _usuariosConectados = data['totalConnected'] ?? (_usuariosConectados - 1).clamp(0, 999);
       _usuariosSuscritos = data['totalRegistered'] ?? _usuariosSuscritos;
       _notifyCallbacks('user_offline', data);
@@ -180,7 +181,7 @@ class SocketService {
     // Confirmación de unirse a sala
     _socket!.on('joined_room', (data) {
       final room = data['roomId'] ?? data['roomName'];
-      print('✅ Te uniste a sala (tracking): $room');
+      debugPrint('✅ Te uniste a sala (tracking): $room');
       if (room is String) {
         _pendingJoin.remove(room);
         _joinedRooms.add(room);
@@ -211,7 +212,7 @@ class SocketService {
 
     // Multimedia compartido (feed)
     _socket!.on('multimedia_compartido', (data) {
-      print('🎯 Socket nativo recibió multimedia_compartido: $data');
+      debugPrint('🎯 Socket nativo recibió multimedia_compartido: $data');
       _notifyCallbacks('multimedia_compartido', data);
     });
 
@@ -221,7 +222,7 @@ class SocketService {
 
     // Errores
     _socket!.on('error', (data) {
-      print('❌ Error del servidor: $data');
+      debugPrint('❌ Error del servidor: $data');
       _notifyCallbacks('error', data);
     });
   }
@@ -259,7 +260,7 @@ class SocketService {
     final list = _eventCallbacks[event];
     if (list == null) return;
     for (final cb in List<Function>.from(list)) {
-      try { cb(data); } catch (e) { print('❌ Error en callback $event: $e'); }
+      try { cb(data); } catch (e) { debugPrint('❌ Error en callback $event: $e'); }
     }
   }
 
@@ -277,7 +278,7 @@ class SocketService {
     String? replyTo,
   }) {
     if (!_isConnected || _socket == null) {
-      print('❌ No conectado al servidor');
+      debugPrint('❌ No conectado al servidor');
       return;
     }
 
@@ -301,16 +302,16 @@ class SocketService {
   // Permite forzar join aunque pensemos que ya estamos unidos (para pantallas que se reconstruyen)
   void joinRoomForce(String roomId, {bool force = true}) {
     if (!_isConnected || _socket == null) {
-      print('❌ No conectado al servidor');
+      debugPrint('❌ No conectado al servidor');
       return;
     }
     if (!force) {
       if (_joinedRooms.contains(roomId)) {
-        print('⏭️ Already in room $roomId, skip join');
+        debugPrint('⏭️ Already in room $roomId, skip join');
         return;
       }
       if (_pendingJoin.contains(roomId)) {
-        print('⏳ Join ya pendiente para $roomId');
+        debugPrint('⏳ Join ya pendiente para $roomId');
         return;
       }
     } else {
@@ -319,7 +320,7 @@ class SocketService {
       _pendingJoin.remove(roomId);
     }
     _pendingJoin.add(roomId);
-    print(force ? '🔁 Forzando join a $roomId' : '➡️ Join a $roomId');
+    debugPrint(force ? '🔁 Forzando join a $roomId' : '➡️ Join a $roomId');
     _socket!.emit('join_room', {'roomId': roomId});
   }
 
@@ -329,7 +330,7 @@ class SocketService {
     _socket!.emit('leave_room', {'roomId': roomId});
     _joinedRooms.remove(roomId);
     _pendingJoin.remove(roomId);
-    print('🚪 Saliendo de sala: $roomId');
+    debugPrint('🚪 Saliendo de sala: $roomId');
   }
 
   bool isInRoom(String roomId) => _joinedRooms.contains(roomId);
@@ -338,7 +339,7 @@ class SocketService {
   // Método para asegurar que estamos en la sala (rejoin si es necesario)
   void ensureInRoom(String roomId) {
     if (!isInRoom(roomId) && !isJoining(roomId)) {
-      print('🔄 Asegurando suscripción a sala: $roomId');
+      debugPrint('🔄 Asegurando suscripción a sala: $roomId');
       joinRoomForce(roomId, force: true);
     }
   }

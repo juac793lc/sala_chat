@@ -45,8 +45,8 @@ class MediaFeedService {
         try {
           final tipoStr = (raw['tipo'] ?? '').toString();
           TipoContenido tipo = TipoContenido.imagen;
-          if (tipoStr.contains('video')) tipo = TipoContenido.video;
-          else if (tipoStr.contains('audio')) tipo = TipoContenido.audio; // Por si en futuro
+          if (tipoStr.contains('video')) { tipo = TipoContenido.video; }
+          else if (tipoStr.contains('audio')) { tipo = TipoContenido.audio; } // Por si en futuro
           parsed.add(
             ContenidoMultimedia(
               id: raw['media_id']?.toString() ?? raw['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),

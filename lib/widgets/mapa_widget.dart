@@ -20,9 +20,9 @@ class MapaWidget extends StatefulWidget {
 
 class _MapaWidgetState extends State<MapaWidget> {
   final MapController _mapController = MapController();
-  List<Marker> _markers = [];
-  List<Marker> _sharedMarkers = []; // Marcadores compartidos de otros usuarios
-  Map<String, Map<String, dynamic>> _markerData = {}; // Datos de marcadores para tiempo dinámico
+  final List<Marker> _markers = [];
+  final List<Marker> _sharedMarkers = []; // Marcadores compartidos de otros usuarios
+  final Map<String, Map<String, dynamic>> _markerData = {}; // Datos de marcadores para tiempo dinámico
   LatLng _currentCenter = const LatLng(18.4861, -69.9312); // Santo Domingo, RD (fallback)
   bool _isLoading = true; // Empezar con loading true
   TipoReporte? _tipoSeleccionado;
@@ -181,7 +181,7 @@ class _MapaWidgetState extends State<MapaWidget> {
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.1),
+                color: Colors.black.withValues(alpha: 0.1),
                 blurRadius: 1,
                 offset: const Offset(0, 0.5),
               ),
@@ -513,7 +513,7 @@ class _MapaWidgetState extends State<MapaWidget> {
   void _loadExistingMarkers(List<dynamic> markersData) {
     if (!mounted) return;
     
-    print('🗺️ Cargando ${markersData.length} marcadores existentes');
+    debugPrint('🗺️ Cargando ${markersData.length} marcadores existentes');
     
     setState(() {
       _sharedMarkers.clear(); // Limpiar marcadores actuales
@@ -525,7 +525,7 @@ class _MapaWidgetState extends State<MapaWidget> {
       }
     }
     
-    print('✅ Marcadores cargados: ${_sharedMarkers.length}');
+    debugPrint('✅ Marcadores cargados: ${_sharedMarkers.length}');
     
     // Mostrar mensaje informativo
     if (mounted && markersData.isNotEmpty) {
@@ -637,7 +637,7 @@ class _MapaWidgetState extends State<MapaWidget> {
                 border: Border.all(color: Colors.white, width: borderWidth),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
+                    color: Colors.black.withValues(alpha: 0.1),
                     blurRadius: 1,
                     offset: const Offset(0, 0.5),
                   ),
@@ -758,7 +758,7 @@ class _MapaWidgetState extends State<MapaWidget> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withValues(alpha: 0.1),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -875,7 +875,7 @@ class _MapaWidgetState extends State<MapaWidget> {
                             ),
                             boxShadow: isSelected ? [
                               BoxShadow(
-                                color: tipoInfo.color.withOpacity(0.2),
+                                color: tipoInfo.color.withValues(alpha: 0.2),
                                 blurRadius: 2,
                                 offset: const Offset(0, 1),
                               ),
@@ -939,7 +939,7 @@ class _MapaWidgetState extends State<MapaWidget> {
                   // Overlay de carga inicial
                   if (_isLoading)
                     Container(
-                      color: Colors.white.withOpacity(0.8),
+                      color: Colors.white.withValues(alpha: 0.8),
                       child: const Center(
                         child: Column(
                           mainAxisSize: MainAxisSize.min,

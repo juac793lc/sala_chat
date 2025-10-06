@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:record/record.dart';
-// ignore: avoid_web_libraries_in_flutter
-import 'dart:html' as html;
+import 'dart:html' as html; // ignore: avoid_web_libraries_in_flutter
 import '../models/comentario.dart';
 import '../services/auth_service.dart';
 import '../services/platform_storage_service.dart';
 import '../services/upload_service.dart';
 import '../services/web_recorder_service.dart';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../services/socket_service.dart';
 
 class InputComentarioWidget extends StatefulWidget {
@@ -37,7 +36,7 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
   String _currentUserName = 'Usuario';
   // Para manejo de comentario temporal de audio en web
   String? _tempAudioCommentId;
-  IO.Socket? _socket;
+  io.Socket? _socket;
   bool _roomReady = false;
   late final String _roomId;
 
@@ -71,11 +70,11 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
         });
       }
     } catch (e) {
-      print('Error cargando usuario en input: $e');
+      debugPrint('Error cargando usuario en input: $e');
     }
   }
 
-  IO.Socket? get _activeSocket {
+  io.Socket? get _activeSocket {
     try {
       // Recuperar socket desde algún servicio central (supuesto)
       _socket ??= SocketService.instance.socket; // si no existe, ignorar
@@ -94,15 +93,17 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
   void _enviarTexto() {
     if (_controller.text.trim().isEmpty) return;
     if (!_roomReady) {
-      print('⏳ Sala aún no confirmada, reintentando...');
+      debugPrint('⏳ Sala aún no confirmada, reintentando...');
       // Reintento simple: esperar un corto delay y reintentar una sola vez
       Future.delayed(const Duration(milliseconds: 300), () {
         if (_roomReady) {
           _enviarTexto();
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Sala no lista todavía, intenta de nuevo'), duration: Duration(seconds: 2)),
-          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Sala no lista todavía, intenta de nuevo'), duration: Duration(seconds: 2)),
+            );
+          }
         }
       });
       return;
@@ -132,7 +133,7 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
       type: 'text',
     );
     
-    print('📤 Mensaje enviado al servidor: $contenidoTexto');
+    debugPrint('📤 Mensaje enviado al servidor: $contenidoTexto');
   }
 
   Future<void> _grabarAudio() async {
@@ -147,7 +148,7 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
 
   Future<void> _iniciarGrabacion() async {
     try {
-      print('🎤 Iniciando grabación...');
+      debugPrint('🎤 Iniciando grabación...');
 
       if (kIsWeb) {
         // Usar grabador nativo web
@@ -158,13 +159,15 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
       } else {
         // Usar record package para móvil
         if (!await _audioRecorder.hasPermission()) {
-          print('❌ Sin permisos de micrófono');
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('❌ Permiso de micrófono denegado'),
-              backgroundColor: Colors.red,
-            ),
-          );
+          debugPrint('❌ Sin permisos de micrófono');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('❌ Permiso de micrófono denegado'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
           return;
         }
 
@@ -183,33 +186,37 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
         _inicioGrabacion = DateTime.now();
       });
 
-      print('🟢 Grabación iniciada correctamente');
+      debugPrint('🟢 Grabación iniciada correctamente');
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('🎤 Grabando... Toca STOP para enviar'),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 2),
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('🎤 Grabando... Toca STOP para enviar'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
 
     } catch (e) {
-      print('❌ Error al iniciar grabación: $e');
+      debugPrint('❌ Error al iniciar grabación: $e');
       setState(() {
         _grabandoAudio = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('❌ Error: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
   Future<void> _detenerGrabacion() async {
     try {
-      print('🔴 Deteniendo grabación...');
+      debugPrint('🔴 Deteniendo grabación...');
       
       final duracion = DateTime.now().difference(_inicioGrabacion);
       
@@ -237,35 +244,34 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
         }
       }
 
-      print('⏹️ Grabación detenida. Duración: ${duracion.inSeconds}s');
+      debugPrint('⏹️ Grabación detenida. Duración: ${duracion.inSeconds}s');
 
       if (audioData != null || fileId != null) {
         // Mostrar indicador de procesamiento
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Row(
-              children: [
-                SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-                SizedBox(width: 16),
-                Text('Procesando audio...'),
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 16),
+                  Text('Procesando audio...'),
               ],
             ),
             duration: Duration(seconds: 3),
-          ),
-        );
-
-        try {
+          ));
+        }        try {
           String? finalUrl;
 
           if (kIsWeb && audioData != null) {
             // Reproducir inmediatamente el blob local (efecto instantáneo)
             final localObjectUrl = html.Url.createObjectUrl(audioData);
             // tempPlaybackUrl ya no se usa, reproducimos directo via blob
-            print('🎧 Reproduciendo local antes de upload: $localObjectUrl');
+            debugPrint('🎧 Reproduciendo local antes de upload: $localObjectUrl');
             // Insertar comentario temporal (estado pendiente) usando URL blob local
             _tempAudioCommentId = 'temp_${DateTime.now().millisecondsSinceEpoch}';
             final comentarioTemp = Comentario(
@@ -291,7 +297,7 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
               );
               finalUrl = uploadResult.url;
               final mediaId = uploadResult.mediaId;
-              print('☁️ (async) Reemplazando blob local por URL servidor (mediaId=$mediaId)');
+              debugPrint('☁️ (async) Reemplazando blob local por URL servidor (mediaId=$mediaId)');
               if (_tempAudioCommentId != null && mediaId != null) {
                 final comentarioFinal = Comentario(
                   id: _tempAudioCommentId!,
@@ -315,7 +321,7 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
                 });
               }
             } catch (e) {
-              print('❌ Upload async falló: $e');
+              debugPrint('❌ Upload async falló: $e');
             }
           } else if (fileId != null) {
             final uploadResult = await UploadService.uploadAudio(
@@ -350,42 +356,50 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
 
           // Ya no agregamos un segundo comentario en web para evitar duplicados
 
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('✅ Audio enviado (${duracion.inSeconds}s)'),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 2),
-            ),
-          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('✅ Audio enviado (${duracion.inSeconds}s)'),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          }
         } catch (uploadError) {
-          print('❌ Error procesando audio: $uploadError');
+          debugPrint('❌ Error procesando audio: $uploadError');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('❌ Error enviando audio: $uploadError'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+        }
+      } else {
+        debugPrint('❌ No se obtuvo audio');
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('❌ Error enviando audio: $uploadError'),
+            const SnackBar(
+              content: Text('❌ Error: No se pudo obtener el audio'),
               backgroundColor: Colors.red,
             ),
           );
         }
-      } else {
-        print('❌ No se obtuvo audio');
+      }
+    } catch (e) {
+      debugPrint('❌ Error al detener grabación: $e');
+      setState(() {
+        _grabandoAudio = false;
+      });
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('❌ Error: No se pudo obtener el audio'),
+          SnackBar(
+            content: Text('❌ Error al finalizar: $e'),
             backgroundColor: Colors.red,
           ),
         );
       }
-    } catch (e) {
-      print('❌ Error al detener grabación: $e');
-      setState(() {
-        _grabandoAudio = false;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('❌ Error al finalizar: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
     }
   }
 
@@ -587,17 +601,19 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
           onTap: _roomReady ? _enviarComentario : null,
           child: Opacity(
             opacity: _roomReady ? 1 : 0.4,
-            child: Container(
+            child: SizedBox(
               width: 36,
               height: 36,
-              decoration: BoxDecoration(
-                color: Colors.blue,
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: const Icon(
-                Icons.send,
-                color: Colors.white,
-                size: 16,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Colors.blue,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: const Icon(
+                  Icons.send,
+                  color: Colors.white,
+                  size: 16,
+                ),
               ),
             ),
           ),
@@ -607,7 +623,7 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
   }
 
   Widget _buildInputAudio() {
-    return Container(
+    return SizedBox(
       height: 60,
       child: Stack(
         children: [
@@ -616,30 +632,32 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
             bottom: 0,
             left: 0,
             right: 0,
-            child: Container(
+            child: SizedBox(
               height: 35,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Colors.blue.shade50,
-                    Colors.blue.shade100,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.blue.shade50,
+                      Colors.blue.shade100,
+                    ],
+                  ),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.elliptical(60, 20),
+                    topRight: Radius.elliptical(60, 20),
+                    bottomLeft: Radius.circular(15),
+                    bottomRight: Radius.circular(15),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.blue.withValues(alpha: 0.1),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
                   ],
                 ),
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.elliptical(60, 20),
-                  topRight: Radius.elliptical(60, 20),
-                  bottomLeft: Radius.circular(15),
-                  bottomRight: Radius.circular(15),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.blue.withOpacity(0.1),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
               ),
             ),
           ),
@@ -665,7 +683,7 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: (_grabandoAudio ? Colors.red : Colors.green).withOpacity(0.4),
+                        color: (_grabandoAudio ? Colors.red : Colors.green).withValues(alpha: 0.4),
                         blurRadius: 12,
                         spreadRadius: 2,
                         offset: const Offset(0, 3),
@@ -682,7 +700,7 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
                             width: 40,
                             height: 40,
                             decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.3),
+                              color: Colors.white.withValues(alpha: 0.3),
                               borderRadius: BorderRadius.circular(20),
                             ),
                           ),

@@ -1,12 +1,13 @@
-import 'dart:html' as html;
+import 'dart:html' as html; // ignore: avoid_web_libraries_in_flutter
 import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart';
 
 /// Servicio de grabación nativo para Flutter Web usando MediaRecorder API
 class WebRecorderService {
   static html.MediaRecorder? _mediaRecorder;
   static html.MediaStream? _stream;
-  static List<html.Blob> _audioChunks = [];
+  static final List<html.Blob> _audioChunks = [];
   static bool _isRecording = false;
   
   /// Inicia la grabación usando MediaRecorder nativo
@@ -16,7 +17,7 @@ class WebRecorderService {
     }
     
     try {
-      print('🎤 Iniciando grabación nativa web...');
+      debugPrint('🎤 Iniciando grabación nativa web...');
       
       // Obtener stream de audio
       _stream = await html.window.navigator.mediaDevices!.getUserMedia({
@@ -34,9 +35,9 @@ class WebRecorderService {
         'audioBitsPerSecond': 128000,
       };
       
-      print('🔊 FORCED WebM format (MediaRecorder limitation)');
+      debugPrint('🔊 FORCED WebM format (MediaRecorder limitation)');
       
-      print('🔊 Formato seleccionado: ${options['mimeType']}');
+      debugPrint('🔊 Formato seleccionado: ${options['mimeType']}');
       
       _mediaRecorder = html.MediaRecorder(_stream!, options);
       _audioChunks.clear();
@@ -46,22 +47,22 @@ class WebRecorderService {
         final blobEvent = event as html.BlobEvent;
         if (blobEvent.data != null && blobEvent.data!.size > 0) {
           _audioChunks.add(blobEvent.data!);
-          print('📊 Chunk recibido: ${blobEvent.data!.size} bytes');
+          debugPrint('📊 Chunk recibido: ${blobEvent.data!.size} bytes');
         }
       });
       
       _mediaRecorder!.addEventListener('start', (_) {
-        print('🟢 Grabación nativa iniciada');
+        debugPrint('🟢 Grabación nativa iniciada');
         _isRecording = true;
       });
       
       _mediaRecorder!.addEventListener('stop', (_) {
-        print('⏹️ Grabación nativa detenida');
+        debugPrint('⏹️ Grabación nativa detenida');
         _isRecording = false;
       });
       
       _mediaRecorder!.addEventListener('error', (error) {
-        print('❌ Error en MediaRecorder: $error');
+        debugPrint('❌ Error en MediaRecorder: $error');
         _isRecording = false;
       });
       
@@ -71,7 +72,7 @@ class WebRecorderService {
       return true;
       
     } catch (e) {
-      print('❌ Error iniciando grabación nativa: $e');
+      debugPrint('❌ Error iniciando grabación nativa: $e');
       _isRecording = false;
       return false;
     }
@@ -84,7 +85,7 @@ class WebRecorderService {
     }
     
     try {
-      print('🔴 Deteniendo grabación nativa...');
+      debugPrint('🔴 Deteniendo grabación nativa...');
       
       // Crear un completer para esperar el evento stop
       final completer = Completer<html.Blob?>();
@@ -94,14 +95,14 @@ class WebRecorderService {
           if (_audioChunks.isNotEmpty) {
             // Crear blob final con todos los chunks
             final finalBlob = html.Blob(_audioChunks, _mediaRecorder!.mimeType);
-            print('✅ Blob final creado: ${finalBlob.size} bytes, tipo: ${finalBlob.type}');
+            debugPrint('✅ Blob final creado: ${finalBlob.size} bytes, tipo: ${finalBlob.type}');
             completer.complete(finalBlob);
           } else {
-            print('❌ No hay chunks de audio');
+            debugPrint('❌ No hay chunks de audio');
             completer.complete(null);
           }
         } catch (e) {
-          print('❌ Error creando blob final: $e');
+          debugPrint('❌ Error creando blob final: $e');
           completer.complete(null);
         }
       });
@@ -123,7 +124,7 @@ class WebRecorderService {
       return await completer.future;
       
     } catch (e) {
-      print('❌ Error deteniendo grabación nativa: $e');
+      debugPrint('❌ Error deteniendo grabación nativa: $e');
       return null;
     }
   }
