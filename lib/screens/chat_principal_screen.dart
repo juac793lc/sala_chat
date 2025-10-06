@@ -36,6 +36,10 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
     Usuario(id: '1', nombre: 'Tú', conectado: true),
     Usuario(id: '8', nombre: 'Diego', conectado: true),
   ];
+  
+  // Contadores dinámicos de usuarios
+  int _usuariosConectados = 2;
+  int _usuariosSuscritos = 0;
 
   @override
   void initState() {
@@ -94,12 +98,24 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
     SocketService.instance.on('user_online', (data) {
       if (mounted) {
         _actualizarUsuarioOnline(data['username']);
+        // Actualizar contadores con datos del backend
+        setState(() {
+          _usuariosConectados = data['totalConnected'] ?? _usuariosConectados;
+          _usuariosSuscritos = data['totalRegistered'] ?? _usuariosSuscritos;
+        });
+        print('🟢 Usuario online: ${data['username']} | Conectados: $_usuariosConectados | Total con app: $_usuariosSuscritos');
       }
     });
 
     SocketService.instance.on('user_offline', (data) {
       if (mounted) {
         _actualizarUsuarioOffline(data['username']);
+        // Actualizar contadores con datos del backend
+        setState(() {
+          _usuariosConectados = data['totalConnected'] ?? _usuariosConectados;
+          _usuariosSuscritos = data['totalRegistered'] ?? _usuariosSuscritos;
+        });
+        print('🔴 Usuario offline: ${data['username']} | Conectados: $_usuariosConectados | Total con app: $_usuariosSuscritos');
       }
     });
 
@@ -311,9 +327,10 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
               HeaderWidget(
                 titulo: 'Proyecto X 🚀',
                 miembrosTotal: usuarios.length,
-                miembrosConectados: usuarios.where((u) => u.conectado).length,
+                miembrosConectados: _usuariosConectados,
                 userName: _currentUserName,
                 userAvatar: _currentUserAvatar,
+                suscritos: _usuariosSuscritos,
               ),
               // Indicador de carga inicial
               if (_cargandoInicial)

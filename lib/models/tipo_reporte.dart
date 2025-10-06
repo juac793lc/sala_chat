@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 enum TipoReporte {
-  policia,
+  interes, // antes 'policia'
   emergencia,
   accidente,
   trafico,
@@ -29,11 +29,11 @@ class TipoReporteInfo {
 class TiposReporte {
   static const List<TipoReporteInfo> todos = [
     TipoReporteInfo(
-      tipo: TipoReporte.policia,
-      nombre: 'Policía',
-      icono: Icons.local_police,
+      tipo: TipoReporte.interes,
+      nombre: 'Punto',
+      icono: Icons.star,
       color: Colors.blue,
-      descripcion: 'Presencia policial o checkpoint',
+      descripcion: 'Punto de interés especial',
     ),
     TipoReporteInfo(
       tipo: TipoReporte.emergencia,
@@ -58,10 +58,10 @@ class TiposReporte {
     ),
     TipoReporteInfo(
       tipo: TipoReporte.borracha,
-      nombre: 'Borracha',
+      nombre: 'Reparación',
       icono: Icons.circle_outlined,
       color: Colors.black,
-      descripcion: 'Neumático reventado o problema de llanta',
+      descripcion: 'Reparación de llanta y servicios',
     ),
     TipoReporteInfo(
       tipo: TipoReporte.aviso,

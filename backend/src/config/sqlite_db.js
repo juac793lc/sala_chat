@@ -56,6 +56,20 @@ const initDb = async () => {
     );
 
     CREATE INDEX IF NOT EXISTS idx_messages_room_created ON messages(room_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS map_markers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      marker_id TEXT UNIQUE,
+      user_id TEXT,
+      user_nombre TEXT,
+      latitude REAL,
+      longitude REAL,
+      tipo_reporte TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      is_active INTEGER DEFAULT 1
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_markers_active ON map_markers(is_active, created_at DESC);
   `);
   
   // Guardar cambios inmediatamente
@@ -147,6 +161,57 @@ module.exports = {
       rows.push(this._rowToObject(result[0], i));
     }
     return rows;
+  },
+
+  // Funciones para marcadores del mapa
+  async insertMarker(data) {
+    const database = await initDb();
+    const stmt = database.prepare(`INSERT INTO map_markers (marker_id, user_id, user_nombre, latitude, longitude, tipo_reporte)
+     VALUES (?, ?, ?, ?, ?, ?)`);
+    stmt.run([data.marker_id, data.user_id, data.user_nombre, data.latitude, data.longitude, data.tipo_reporte]);
+    saveDb();
+    
+    const result = database.exec('SELECT * FROM map_markers WHERE marker_id = ?', [data.marker_id]);
+    return result.length > 0 && result[0].values.length > 0 ? this._rowToObject(result[0], 0) : null;
+  },
+
+  async getAllActiveMarkers() {
+    const database = await initDb();
+    // Incluir columna calculada en milisegundos para evitar ambigüedades de parse de fecha en JS
+    const result = database.exec(`SELECT 
+        marker_id,
+        user_id,
+        user_nombre,
+        latitude,
+        longitude,
+        tipo_reporte,
+        is_active,
+        created_at,
+        (CAST(strftime('%s', created_at) AS INTEGER) * 1000) AS created_at_ms
+      FROM map_markers 
+      WHERE is_active = 1 
+      ORDER BY created_at DESC`);
+    if (result.length === 0) return [];
+    
+    const rows = [];
+    for (let i = 0; i < result[0].values.length; i++) {
+      rows.push(this._rowToObject(result[0], i));
+    }
+    return rows;
+  },
+
+  async deactivateMarker(marker_id) {
+    const database = await initDb();
+    const stmt = database.prepare('UPDATE map_markers SET is_active = 0 WHERE marker_id = ?');
+    stmt.run([marker_id]);
+    saveDb();
+    return true;
+  },
+
+  async getMarkerById(marker_id) {
+    const database = await initDb();
+    const result = database.exec('SELECT * FROM map_markers WHERE marker_id = ?', [marker_id]);
+    return result.length > 0 && result[0].values.length > 0 ? this._rowToObject(result[0], 0) : null;
   },
   
   _rowToObject(result, rowIndex) {

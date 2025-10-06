@@ -261,14 +261,14 @@ class _InputMultimediaWidgetState extends State<InputMultimediaWidget>
           if (widget.onMapaTap != null) ...[
             _buildBoton(
               onTap: widget.onMapaTap!,
-              colores: const [Color(0xFFFF9800), Color(0xFFFFB74D)],
+              colores: const [Color(0xFF2196F3), Color(0xFF64B5F6)],
               icono: Icons.map_rounded,
             ),
             const SizedBox(height: 12),
           ],
           _buildBoton(
             onTap: _abrirGaleriaDirecta,
-            colores: const [Color(0xFF2196F3), Color(0xFF64B5F6)],
+            colores: const [Color(0xFF4CAF50), Color(0xFF81C784)],
             icono: Icons.add,
           ),
         ],

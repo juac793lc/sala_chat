@@ -16,10 +16,18 @@ class SocketService {
   
   // Callbacks para eventos
   final Map<String, List<Function>> _eventCallbacks = {};
+  
+  // Contadores de usuarios en tiempo real
+  int _usuariosConectados = 0;
+  int _usuariosSuscritos = 0;
+  final Map<String, int> _suscritosPorSala = {};
 
   // Getters
   bool get isConnected => _isConnected;
   io.Socket? get socket => _socket;
+  int get usuariosConectados => _usuariosConectados;
+  int get usuariosSuscritos => _usuariosSuscritos;
+  int suscritosPorSala(String roomId) => _suscritosPorSala[roomId] ?? 0;
 
   // Conectar al servidor (idempotente)
   Future<bool> connect() async {
@@ -142,12 +150,26 @@ class SocketService {
     // Usuario online/offline
     _socket!.on('user_online', (data) {
       print('🟢 Usuario online: ${data['username'] ?? data['userId']}');
+      _usuariosConectados = data['totalConnected'] ?? (_usuariosConectados + 1);
+      _usuariosSuscritos = data['totalRegistered'] ?? _usuariosSuscritos;
       _notifyCallbacks('user_online', data);
+      _notifyCallbacks('users_count_updated', {
+        'connected': _usuariosConectados,
+        'subscribed': _usuariosSuscritos,
+        'totalRegistered': data['totalRegistered'] ?? _usuariosSuscritos,
+      });
     });
 
     _socket!.on('user_offline', (data) {
       print('🔴 Usuario offline: ${data['username'] ?? data['userId']}');
+      _usuariosConectados = data['totalConnected'] ?? (_usuariosConectados - 1).clamp(0, 999);
+      _usuariosSuscritos = data['totalRegistered'] ?? _usuariosSuscritos;
       _notifyCallbacks('user_offline', data);
+      _notifyCallbacks('users_count_updated', {
+        'connected': _usuariosConectados,
+        'subscribed': _usuariosSuscritos,
+        'totalRegistered': data['totalRegistered'] ?? _usuariosSuscritos,
+      });
     });
 
     // Eventos de sala
@@ -162,8 +184,18 @@ class SocketService {
       if (room is String) {
         _pendingJoin.remove(room);
         _joinedRooms.add(room);
+        // Actualizar contadores con datos del servidor
+        final roomSubscribers = data['roomSubscribers'] ?? data['subscribers'] ?? 0;
+        _suscritosPorSala[room] = roomSubscribers;
+        _usuariosConectados = data['totalConnected'] ?? _usuariosConectados;
+        _usuariosSuscritos = data['totalRegistered'] ?? _usuariosSuscritos;
       }
       _notifyCallbacks('joined_room', data);
+      _notifyCallbacks('users_count_updated', {
+        'connected': _usuariosConectados,
+        'subscribed': _usuariosSuscritos,
+        'roomSubscribers': _suscritosPorSala[room] ?? 0,
+      });
     });
 
     // Indicadores de escritura

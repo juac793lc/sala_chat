@@ -1,17 +1,16 @@
-# Sala Chat (Flutter + Node/Socket.IO)
+# Sala Chat + Mapa (Flutter + Node/Socket.IO)
 
 ## 🇪🇸 Descripción
-Aplicación de sala de chat en tiempo real con:
-- Mensajes de texto (UI optimista + reconciliación)
-- Clips de audio grabados y reproducidos en línea
-- Orden cronológico estable garantizado (inserción incremental + timestamps monotónicos)
-- Backend Node.js + Socket.IO + SQLite (o memoria)
-- Frontend Flutter multiplataforma (Web, Windows, Android, etc.)
+Aplicación de tiempo real con:
+- Chat (texto + audio) estable y reconciliado
+- Feed multimedia unificado
+- Mapa colaborativo con marcadores y Puntos de Interés temporizados (expiran automáticamente)
+- Backend Node.js + Socket.IO + SQLite (sql.js persistido en archivo)
+- Frontend Flutter multiplataforma (Web, Desktop, Mobile)
 
-> Objetivo inmediato logrado: chat texto + audio estable sin duplicados ni reordenamientos raros.
-> Próximo módulo: Mapa de informes georreferenciados por contenido.
+Estado actual: Chat + Mapa funcionando. Los marcadores especiales (tipo `interes`) muestran tiempo transcurrido y se eliminan automáticamente a los 50 minutos.
 
-## Características Clave
+## Características Clave (Chat & Multimedia)
 1. Conexión controlada a salas (join protegido para evitar listeners duplicados)
 2. UI optimista: el mensaje aparece inmediatamente con id temporal `temp_*`
 3. Reconciliación: al llegar el evento real se sustituye conservando posición
@@ -20,6 +19,35 @@ Aplicación de sala de chat en tiempo real con:
 6. Reproductor de audio con playlist y bloqueo de duplicados
 7. Cache de historial (mitiga 429 / rate limit)
 8. Estructura de servicios (separación de responsabilidades)
+
+## Mapa y Marcadores (Tiempo Real)
+Características:
+1. Marcadores compartidos se propagan vía Socket.IO inmediatamente.
+2. Marcadores tipo `interes` (Punto de Interés) incluyen timestamp de creación en milisegundos.
+3. El cliente recalcula cada minuto el tiempo transcurrido sin reiniciar al reconectarse.
+4. Auto-eliminación programada en el backend a los 50 minutos (broadcast `marker_auto_removed`).
+5. Compatibilidad retro: si algún cliente viejo envía `policia`, se normaliza a `interes`.
+
+Eventos relacionados:
+- `add_marker` (cliente → servidor)
+- `marker_confirmed` (eco al creador)
+- `marker_added` (a otros clientes)
+- `request_existing_markers` / `existing_markers` (sincronización inicial)
+- `marker_removed` (eliminación manual)
+- `marker_auto_removed` (expiración automática)
+
+Campos del marcador:
+```json
+{
+  "id": "uuid",
+  "userId": "usuario_creador",
+  "username": "Nombre",
+  "latitude": 0.0,
+  "longitude": 0.0,
+  "tipoReporte": "interes",
+  "timestamp": 1730740000000  // epoch ms
+}
+```
 
 ## Arquitectura (Frontend)
 - `services/socket_service.dart`: Conecta, maneja eventos, logging y control de join.
@@ -99,12 +127,12 @@ lib/
 assets/
 ```
 
-## Roadmap Próximo (Informes / Mapa)
-- Modelo `Informe { id, contenidoId, lat, lng, titulo, descripcion, fecha }`
-- Servicio in-memory + luego endpoint backend
-- Pantalla mapa (`flutter_map`) mostrando markers
-- Acción para crear informe (tap largo / botón flotante)
-- Asociación informe–contenido (filtrado por sala / contexto)
+## Roadmap Próximo
+- Clustering de marcadores
+- Filtros por tipo
+- Persistencia de multimedia asociada a un marcador
+- Moderación / roles
+- Notificaciones push
 
 ## Scripts Sugeridos (Backend) — futuros
 Añadir a `backend/package.json`:
@@ -134,8 +162,7 @@ Real-time chat room app featuring:
 - Node.js + Socket.IO backend (SQLite or in-memory)
 - Flutter multi-platform frontend
 
-Current milestone: stable text + audio chat with no duplicates or ordering glitches.
-Next planned module: geo-based reports map.
+Current milestone: stable text/audio chat + real-time map with expiring interest points.
 
 ### Key Features
 See Spanish section above (mirrors: controlled join, optimistic temp messages, reconciliation, incremental insertion, monotonic timestamps, audio playlist, history cache, service-layer separation).

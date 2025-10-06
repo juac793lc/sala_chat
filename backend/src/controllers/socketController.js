@@ -3,7 +3,9 @@ const { v4: uuidv4 } = require('uuid');
 const sqlite = require('../config/sqlite_db');
 
 // SUPER SIMPLE: Solo variables en memoria para pruebas
-const connectedUsers = new Map();
+const connectedUsers = new Map(); // usuarios conectados ahora
+const registeredUsersSet = new Set(); // IDs de usuarios únicos que han usado la app
+const markerTimers = new Map(); // timers para auto-eliminación de estrellas
 const simpleBD = {
   users: [],
   messages: []
@@ -22,6 +24,9 @@ const authenticateSocket = async (socket) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     console.log(`✅ Token decodificado para usuario: ${decoded.userId} (${decoded.username})`);
     
+    // Registrar usuario único (acumula total de usuarios con la app)
+    registeredUsersSet.add(decoded.userId);
+    
     let user = simpleBD.users.find(u => u.id === decoded.userId);
     if (!user) {
       user = {
@@ -32,13 +37,13 @@ const authenticateSocket = async (socket) => {
         socketId: socket.id
       };
       simpleBD.users.push(user);
-      console.log(`👤 Nuevo usuario creado: ${user.username}`);
+      console.log(`👤 Nuevo usuario registrado: ${user.username} (Total registrados: ${registeredUsersSet.size})`);
     } else {
       // Actualizar con nombre del token
       user.username = decoded.username || user.username;
       user.isOnline = true;
       user.socketId = socket.id;
-      console.log(`👤 Usuario reconectado: ${user.username}`);
+      console.log(`👤 Usuario reconectado: ${user.username} (Total registrados: ${registeredUsersSet.size})`);
     }
     
     return user;
@@ -71,10 +76,23 @@ const handleSocketConnection = async (socket, io) => {
       user: user 
     });
 
-    // Notificar a otros usuarios del proyecto
+    // Notificar a otros usuarios del proyecto con contadores actualizados
+    const totalConnected = connectedUsers.size;
+    const totalRegistered = registeredUsersSet.size;
+    
     socket.to('proyecto_x').emit('user_online', {
       userId: user.id,
-      username: user.username
+      username: user.username,
+      totalConnected: totalConnected,
+      totalRegistered: totalRegistered
+    });
+    
+    // También notificar al propio usuario
+    socket.emit('user_online', {
+      userId: user.id,
+      username: user.username,
+      totalConnected: totalConnected,
+      totalRegistered: totalRegistered
     });
 
     // === EVENTOS SIMPLES ===
@@ -273,9 +291,17 @@ const handleSocketConnection = async (socket, io) => {
       socket.join(roomId);
       console.log(`🏠 ${user.username} se unió a sala: ${roomId}`);
       
+      // Contadores: sala actual vs totales
+      const roomSize = io.sockets.adapter.rooms.get(roomId)?.size || 0;
+      const totalConnected = connectedUsers.size;
+      const totalRegistered = registeredUsersSet.size;
+      
       socket.emit('joined_room', {
         roomId: roomId,
-        roomName: roomId === 'proyecto_x' ? 'Proyecto X 🚀' : roomId
+        roomName: roomId === 'proyecto_x' ? 'Proyecto X 🚀' : roomId,
+        roomSubscribers: roomSize,
+        totalConnected: totalConnected,
+        totalRegistered: totalRegistered
       });
 
       // Si es la sala del proyecto o general, enviar todo el historial de contenido
@@ -319,15 +345,150 @@ const handleSocketConnection = async (socket, io) => {
       console.log(`🚪 ${user.username} salió de sala: ${roomId}`);
     });
 
+    // Evento para agregar marcador al mapa
+    socket.on('add_marker', async (data) => {
+      console.log(`🗺️ Nuevo marcador de ${user.username}:`, data);
+      
+      const markerId = uuidv4();
+      // Normalizar tipo: aceptar 'policia' legado como 'interes'
+      const rawTipo = data.tipoReporte;
+      const normalizedTipo = rawTipo === 'policia' ? 'interes' : rawTipo;
+
+      const markerData = {
+        id: markerId,
+        userId: user.id,
+        username: user.username,
+        latitude: data.latitude,
+        longitude: data.longitude,
+        tipoReporte: normalizedTipo,
+        timestamp: Date.now()
+      };
+
+      try {
+        // Guardar en base de datos
+        await sqlite.insertMarker({
+          marker_id: markerId,
+          user_id: user.id,
+          user_nombre: user.username,
+          latitude: data.latitude,
+          longitude: data.longitude,
+          tipo_reporte: normalizedTipo
+        });
+        
+        // Enviar a todos los usuarios conectados (incluyendo el que lo creó)
+        socket.broadcast.emit('marker_added', markerData);
+        socket.emit('marker_confirmed', markerData);
+        
+        console.log(`✅ Marcador ${markerId} guardado en BD`);
+        
+        // Si es estrella (policia), configurar auto-eliminación en 50 minutos
+  if (normalizedTipo === 'interes') {
+          const timer = setTimeout(async () => {
+            try {
+              // Auto-eliminar de la base de datos
+              await sqlite.deactivateMarker(markerId);
+              
+              // Notificar a todos los usuarios conectados
+              socket.broadcast.emit('marker_auto_removed', {
+                markerId: markerId,
+                reason: 'expired',
+                message: 'Estrella eliminada automáticamente (50 min)'
+              });
+              socket.emit('marker_auto_removed', {
+                markerId: markerId,
+                reason: 'expired',
+                message: 'Estrella eliminada automáticamente (50 min)'
+              });
+              
+              // Limpiar timer del mapa
+              markerTimers.delete(markerId);
+              
+              console.log(`🗑️ Estrella ${markerId} auto-eliminada después de 50 min`);
+            } catch (error) {
+              console.error('❌ Error auto-eliminando marcador:', error);
+            }
+          }, 50 * 60 * 1000); // 50 minutos
+          
+          // Guardar referencia del timer
+          markerTimers.set(markerId, timer);
+          console.log(`⏰ Timer de 50min configurado para estrella ${markerId}`);
+        }
+      } catch (error) {
+        console.error('❌ Error guardando marcador:', error);
+        socket.emit('marker_error', { message: 'Error guardando marcador' });
+      }
+    });
+
+    // Evento para eliminar marcador del mapa
+    socket.on('remove_marker', async (data) => {
+      console.log(`🗑️ Eliminar marcador ${data.markerId} por ${user.username}`);
+      
+      try {
+        // Desactivar en base de datos (no eliminar, solo marcar como inactivo)
+        await sqlite.deactivateMarker(data.markerId);
+        
+        // Cancelar timer de auto-eliminación si existe
+        if (markerTimers.has(data.markerId)) {
+          clearTimeout(markerTimers.get(data.markerId));
+          markerTimers.delete(data.markerId);
+          console.log(`⏰ Timer cancelado para marcador ${data.markerId}`);
+        }
+        
+        // Enviar a todos los usuarios conectados
+        socket.broadcast.emit('marker_removed', {
+          markerId: data.markerId,
+          userId: user.id,
+          username: user.username
+        });
+        socket.emit('marker_remove_confirmed', {
+          markerId: data.markerId
+        });
+        
+        console.log(`✅ Marcador ${data.markerId} desactivado en BD`);
+      } catch (error) {
+        console.error('❌ Error eliminando marcador:', error);
+      }
+    });
+
+    // Solicitar marcadores existentes al conectarse
+    socket.on('request_existing_markers', async () => {
+      try {
+        console.log(`📍 Cargando marcadores existentes para ${user.username}`);
+        
+        const markers = await sqlite.getAllActiveMarkers();
+        const formattedMarkers = markers.map(marker => ({
+          id: marker.marker_id,
+          userId: marker.user_id,
+          username: marker.user_nombre,
+          latitude: marker.latitude,
+          longitude: marker.longitude,
+          tipoReporte: marker.tipo_reporte,
+          // Preferir valor en ms calculado por la query; fallback a parse
+          timestamp: marker.created_at_ms || new Date(marker.created_at).getTime()
+        }));
+        
+        socket.emit('existing_markers', formattedMarkers);
+        console.log(`✅ Enviados ${formattedMarkers.length} marcadores existentes`);
+      } catch (error) {
+        console.error('❌ Error cargando marcadores:', error);
+        socket.emit('existing_markers', []);
+      }
+    });
+
     // Desconexión
     socket.on('disconnect', () => {
       console.log(`👋 ${user.username} desconectado`);
       connectedUsers.delete(socket.id);
       
-      // Notificar a otros usuarios del proyecto
+      // Notificar a otros usuarios del proyecto con contadores actualizados
+      const totalConnected = connectedUsers.size;
+      const totalRegistered = registeredUsersSet.size;
+      
       socket.to('proyecto_x').emit('user_offline', {
         userId: user.id,
-        username: user.username
+        username: user.username,
+        totalConnected: totalConnected,
+        totalRegistered: totalRegistered
       });
       
       // Actualizar estado
@@ -337,7 +498,9 @@ const handleSocketConnection = async (socket, io) => {
       
       socket.broadcast.emit('user_offline', {
         userId: user.id,
-        username: user.username
+        username: user.username,
+        totalConnected: totalConnected,
+        totalRegistered: totalRegistered
       });
     });
 
