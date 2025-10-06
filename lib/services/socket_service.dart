@@ -52,7 +52,7 @@ class SocketService {
 
       // Configurar socket (solo crear si no existe)
       _socket = io.io(
-        'http://localhost:3000',
+        'https://sala-chat-backend-production.up.railway.app',
         io.OptionBuilder()
             .setTransports(['websocket', 'polling'])
             .disableAutoConnect() // desactivar auto connect para controlar manualmente
