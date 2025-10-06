@@ -4,7 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 
 class AuthService {
-  static const String baseUrl = 'http://localhost:3000/api/auth';
+  static const String baseUrl = 'https://sala-chat-backend-production.up.railway.app/api/auth';
   // Cache simple en memoria del usuario actual para evitar verify repetido lento
   static UserModel? _cachedUser;
   static DateTime? _cachedAt;

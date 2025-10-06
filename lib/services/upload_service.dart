@@ -14,7 +14,7 @@ import 'web_storage_service.dart';
 
 class UploadService {
   // Ajustar al puerto real del backend (server.js usa 3000 por defecto)
-  static const String baseUrl = 'http://localhost:3000';
+  static const String baseUrl = 'https://sala-chat-backend-production.up.railway.app';
   
   /// Sube un archivo multimedia al servidor y retorna la URL
   static Future<UploadResult> uploadFile(

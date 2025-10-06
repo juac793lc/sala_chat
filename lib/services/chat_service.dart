@@ -5,7 +5,7 @@ import 'auth_service.dart';
 import '../models/message_model.dart'; // agregado
 
 class ChatService {
-  static const String baseUrl = 'http://localhost:3000/api/chat';
+  static const String baseUrl = 'https://sala-chat-backend-production.up.railway.app/api/chat';
 
   // === SALAS ===
 

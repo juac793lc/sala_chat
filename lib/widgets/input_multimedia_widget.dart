@@ -209,7 +209,7 @@ class _InputMultimediaWidgetState extends State<InputMultimediaWidget>
   ) async {
     try {
       // Usar http directamente para enviar multipart
-      final uri = Uri.parse('http://localhost:3000/api/media/upload');
+  final uri = Uri.parse('https://sala-chat-backend-production.up.railway.app/api/media/upload');
       final request = http.MultipartRequest('POST', uri);
       
       // Headers básicos (sin Authorization por ahora)
