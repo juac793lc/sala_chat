@@ -1,0 +1,6 @@
+{
+  "build": {
+    "install": "cd backend && npm ci",
+    "start": "cd backend && node server.js"
+  }
+}
