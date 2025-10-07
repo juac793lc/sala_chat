@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:html' as html; // solo para web: obtener geolocalización
 import '../models/usuario.dart';
 import '../models/contenido_multimedia.dart';
 import '../widgets/header_widget.dart';
@@ -8,6 +11,8 @@ import '../widgets/mapa_widget.dart';
 import '../services/socket_service.dart';
 import '../services/auth_service.dart';
 import '../services/media_feed_service.dart'; // nuevo
+import '../services/push_service.dart';
+import '../config/endpoints.dart';
 import 'sala_comentarios_screen.dart';
 
 class ChatPrincipalScreen extends StatefulWidget {
@@ -46,8 +51,59 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
     _loadCurrentUser();
     _cargaInicialFeed();
     _setupSocketConnection();
+
+    if (kIsWeb) {
+      _pushService = PushService(Endpoints.base);
+    }
+
+    // Registrar listener para notificaciones de mapa (proximidad)
+    SocketService.instance.on('map_notification', (data) {
+      if (!mounted) return;
+      try {
+        final marker = data is Map ? data['marker'] : null;
+        final dist = data is Map ? data['distanceMeters'] : null;
+        final title = marker != null ? (marker['tipoReporte'] ?? 'Marcador cercano') : 'Marcador cercano';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$title • ${dist ?? '?'} m'),
+            action: SnackBarAction(
+              label: 'Ver',
+              onPressed: () => setState(() { _mostrarBliz = true; }),
+            ),
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      } catch (e) {
+        debugPrint('Error procesando map_notification: $e');
+      }
+    });
+
+    // Enviar ubicación inicial si estamos compartiendo y estamos en web
+    if (_compartirUbicacion && kIsWeb) {
+      Future.delayed(const Duration(milliseconds: 500), () => _sendBrowserLocation());
+      // Iniciar envío periódico
+      _startPeriodicLocation();
+      // Intentar registrar push automáticamente al compartir ubicación
+      if (_pushService != null) {
+        _pushService!.getVapidPublicKey().then((key) {
+          if (key != null) {
+            _pushService!.registerServiceWorkerAndSubscribe(key, null).then((ok) {
+              if (ok) {
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Notificaciones activadas')));
+              } else {
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo activar notificaciones')));
+              }
+            });
+          }
+        });
+      }
+    }
   }
   bool _mostrarBliz = false;
+  // Para pruebas locales en web activamos envío de ubicación por defecto.
+  // Puedes cambiar a false para exigir opt-in.
+  bool _compartirUbicacion = true;
+  PushService? _pushService;
   String? _currentUserName;
   String? _currentUserAvatar;
   // Indicador de carga inicial HTTP
@@ -332,6 +388,10 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
     setState(() {
       _mostrarBliz = !_mostrarBliz;
     });
+    // Si abrimos el mapa y compartimos ubicación, enviar ubicación al servidor
+    if (_mostrarBliz && _compartirUbicacion && kIsWeb) {
+      _sendBrowserLocation();
+    }
   }
 
   void _cerrarBliz() {
@@ -340,8 +400,44 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
     });
   }
 
+  // Obtener ubicación del navegador (web) y enviarla al servidor
+  Future<void> _sendBrowserLocation() async {
+    if (!kIsWeb) return;
+    try {
+      final geo = html.window.navigator.geolocation;
+      final pos = await geo.getCurrentPosition();
+      final lat = pos.coords?.latitude;
+      final lng = pos.coords?.longitude;
+      if (lat != null && lng != null) {
+        SocketService.instance.emit('update_location', {
+          'lat': lat,
+          'lng': lng,
+          'ts': DateTime.now().toIso8601String()
+        });
+        debugPrint('📡 Ubicación enviada: $lat,$lng');
+      }
+    } catch (e) {
+      debugPrint('Error getCurrentPosition: $e');
+    }
+  }
+
+  // Periodically send location while compartir is true (web only)
+  Timer? _locationTimer;
+  void _startPeriodicLocation() {
+    if (!kIsWeb) return;
+    _locationTimer?.cancel();
+    _locationTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (_compartirUbicacion) _sendBrowserLocation();
+    });
+  }
+  void _stopPeriodicLocation() {
+    _locationTimer?.cancel();
+    _locationTimer = null;
+  }
+
   @override
   void dispose() {
+    _stopPeriodicLocation();
     // Salir de la sala del proyecto
     SocketService.instance.leaveRoom('proyecto_x');
     super.dispose();

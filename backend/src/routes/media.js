@@ -247,7 +247,17 @@ router.get('/by-room/:roomId', async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit) || 50, 100);
     const offset = parseInt(req.query.offset) || 0;
     const rows = await sqlite.listMedia(roomId, limit, offset);
-    return res.json({ roomId, count: rows.length, items: rows });
+    // Enriquecer cada row con contadores de comentarios (texto/audio)
+    const enriched = await Promise.all(rows.map(async (r) => {
+      try {
+        const comentariosTexto = await sqlite.countComentariosTexto(r.media_id || r.id || r.mediaId || '');
+        const comentariosAudio = await sqlite.countComentariosAudio(r.media_id || r.id || r.mediaId || '');
+        return Object.assign({}, r, { comentariosTexto, comentariosAudio });
+      } catch (e) {
+        return Object.assign({}, r, { comentariosTexto: 0, comentariosAudio: 0 });
+      }
+    }));
+    return res.json({ roomId, count: enriched.length, items: enriched });
   } catch (err) {
     console.error('❌ Error listando media por room:', err);
     return res.status(500).json({ error: 'Error interno listando media' });

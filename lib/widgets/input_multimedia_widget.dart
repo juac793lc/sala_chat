@@ -6,6 +6,7 @@ import 'dart:convert';
 import '../models/contenido_multimedia.dart';
 import '../services/upload_service.dart';
 import '../services/auth_service.dart';
+import '../config/endpoints.dart';
 
 class InputMultimediaWidget extends StatefulWidget {
   final Function(ContenidoMultimedia) onContenidoAgregado;
@@ -209,7 +210,7 @@ class _InputMultimediaWidgetState extends State<InputMultimediaWidget>
   ) async {
     try {
       // Usar http directamente para enviar multipart
-  final uri = Uri.parse('https://sala-chat-backend-production.up.railway.app/api/media/upload');
+  final uri = Uri.parse('${Endpoints.base}/api/media/upload');
       final request = http.MultipartRequest('POST', uri);
       
       // Headers básicos (sin Authorization por ahora)

@@ -1,0 +1,10 @@
+Local backend URL (for Flutter dev and testing):
+http://localhost:3001
+
+Remote backend URL (production/dev hosted):
+https://sala-chat-backend-production.up.railway.app
+
+Notes:
+- To test locally, set Endpoints.useLocal = true in lib/config/endpoints.dart and restart Flutter.
+- Ensure backend is running locally: cd backend; $env:JWT_SECRET='dev-secret-change-me'; $env:PORT='3001'; npm run dev
+- When ready, set Endpoints.useLocal = false to point Flutter to the remote server and restart.

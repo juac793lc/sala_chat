@@ -70,6 +70,17 @@ const initDb = async () => {
     );
 
     CREATE INDEX IF NOT EXISTS idx_markers_active ON map_markers(is_active, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT,
+      endpoint TEXT UNIQUE,
+      p256dh TEXT,
+      auth TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
   `);
   
   // Guardar cambios inmediatamente
@@ -223,6 +234,47 @@ module.exports = {
     const database = await initDb();
     const result = database.exec('SELECT * FROM map_markers WHERE marker_id = ?', [marker_id]);
     return result.length > 0 && result[0].values.length > 0 ? this._rowToObject(result[0], 0) : null;
+  },
+
+  // Push subscriptions CRUD
+  async insertPushSubscription(data) {
+    const database = await initDb();
+    try {
+      const stmt = database.prepare(`INSERT OR REPLACE INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)`);
+      stmt.run([data.user_id || null, data.endpoint, data.p256dh, data.auth]);
+      saveDb();
+      const res = database.exec('SELECT * FROM push_subscriptions WHERE endpoint = ?', [data.endpoint]);
+      return res.length > 0 && res[0].values.length > 0 ? this._rowToObject(res[0], 0) : null;
+    } catch (e) {
+      console.warn('⚠️ insertPushSubscription error:', e.message);
+      return null;
+    }
+  },
+
+  async removePushSubscription(endpoint) {
+    const database = await initDb();
+    try {
+      const stmt = database.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?');
+      stmt.run([endpoint]);
+      saveDb();
+      return true;
+    } catch (e) {
+      console.warn('⚠️ removePushSubscription error:', e.message);
+      return false;
+    }
+  },
+
+  async listPushSubscriptionsNear(lat, lng, radiusMeters = 2000) {
+    // Nota: SQLite no tiene funciones geoespaciales aquí; retornamos todas las suscripciones y el filtrado
+    // de proximidad se hace en memoria por el controlador usando userLocations.
+    const database = await initDb();
+    const result = database.exec('SELECT * FROM push_subscriptions');
+    if (result.length === 0) return [];
+    const rows = [];
+    for (let i = 0; i < result[0].values.length; i++) {
+      rows.push(this._rowToObject(result[0], i));
+    }
+    return rows;
   },
   
   _rowToObject(result, rowIndex) {

@@ -55,8 +55,8 @@ class MediaFeedService {
               tipo: tipo,
               url: raw['url']?.toString() ?? '',
               fechaCreacion: _parseDate(raw['created_at']) ?? DateTime.now(),
-              comentariosTexto: 0,
-              comentariosAudio: 0,
+              comentariosTexto: _parseCount(raw['comentariosTexto'] ?? raw['comentarios_texto']),
+              comentariosAudio: _parseCount(raw['comentariosAudio'] ?? raw['comentarios_audio']),
               duracionSegundos: (raw['duration_seconds'] is num) ? (raw['duration_seconds'] as num).round() : 0,
             ),
           );
@@ -77,5 +77,18 @@ class MediaFeedService {
   DateTime? _parseDate(dynamic v) {
     if (v == null) return null;
     try { return DateTime.parse(v.toString()); } catch (_) { return null; }
+  }
+
+  int _parseCount(dynamic v) {
+    if (v == null) return 0;
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    if (v is String) {
+      final parsed = int.tryParse(v);
+      if (parsed != null) return parsed;
+      final asNum = num.tryParse(v);
+      if (asNum != null) return asNum.toInt();
+    }
+    return 0;
   }
 }

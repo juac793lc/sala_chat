@@ -11,10 +11,11 @@ import 'package:mime/mime.dart';
 import 'package:path/path.dart' as path;
 
 import 'web_storage_service.dart';
+import '../config/endpoints.dart';
 
 class UploadService {
   // Ajustar al puerto real del backend (server.js usa 3000 por defecto)
-  static const String baseUrl = 'https://sala-chat-backend-production.up.railway.app';
+  static String get baseUrl => Endpoints.base;
   
   /// Sube un archivo multimedia al servidor y retorna la URL
   static Future<UploadResult> uploadFile(

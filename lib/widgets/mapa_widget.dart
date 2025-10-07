@@ -521,6 +521,11 @@ class _MapaWidgetState extends State<MapaWidget> {
     
     for (final markerData in markersData) {
       if (markerData is Map<String, dynamic>) {
+        // Filtrar marcadores ya expirados según expiresAt si está presente
+        final expiresAt = markerData['expiresAt'];
+        if (expiresAt != null && expiresAt is int) {
+          if (DateTime.now().millisecondsSinceEpoch > expiresAt) continue; // ya expirado, no agregar
+        }
         _addSharedMarker(markerData);
       }
     }
@@ -559,7 +564,9 @@ class _MapaWidgetState extends State<MapaWidget> {
     if (minutes < 1) {
       return '1 min';
     } else if (minutes < 60) {
-      return '$minutes min';
+      // Capear visualización a 50 minutos para estrellas
+      if (minutes <= 50) return '$minutes min';
+      return '50+ min';
     } else {
       final hours = (minutes / 60).floor();
       if (hours < 24) {

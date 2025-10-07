@@ -74,13 +74,13 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
-          gradient: LinearGradient(
+          gradient: const LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              Colors.blue.shade400,
-              Colors.purple.shade400,
-              Colors.pink.shade300,
+              Color(0xFF2ECC71), // verde
+              Color(0xFF27AE60), // verde más profundo
+              Color(0xFF0A84FF), // azul
             ],
           ),
         ),

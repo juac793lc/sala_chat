@@ -2,10 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'auth_service.dart';
+import '../config/endpoints.dart';
 import '../models/message_model.dart'; // agregado
 
 class ChatService {
-  static const String baseUrl = 'https://sala-chat-backend-production.up.railway.app/api/chat';
+  static String get baseUrl => Endpoints.apiChat;
 
   // === SALAS ===
 

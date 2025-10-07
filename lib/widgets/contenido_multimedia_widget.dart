@@ -162,27 +162,32 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
                   ],
                 ),
                 const SizedBox(height: 8),
-                // Barra de progreso
-                Container(
-                  width: 200,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                  child: Stack(
-                    children: [
-                      Container(
-                        width: _duration.inMilliseconds > 0
-                            ? 200 * (_position.inMilliseconds / _duration.inMilliseconds)
-                            : 0,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Colors.green,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                    ],
+                // Barra de progreso responsiva
+                Expanded(
+                  child: Container(
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                    child: LayoutBuilder(builder: (context, constraints) {
+                      final width = constraints.maxWidth;
+                      final filled = _duration.inMilliseconds > 0
+                          ? width * (_position.inMilliseconds / _duration.inMilliseconds)
+                          : 0.0;
+                      return Stack(
+                        children: [
+                          Container(
+                            width: filled,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: Colors.green,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        ],
+                      );
+                    }),
                   ),
                 ),
               ],
@@ -580,6 +585,8 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
                                     fontWeight: FontWeight.w600,
                                     fontSize: 12,
                                   ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                                 Text(
                                   '${widget.contenido.comentariosTexto} respuestas',
@@ -587,6 +594,8 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
                                     color: Colors.grey.shade500,
                                     fontSize: 10,
                                   ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ],
                             ),
@@ -639,6 +648,8 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
                                     fontWeight: FontWeight.w600,
                                     fontSize: 12,
                                   ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                                 Text(
                                   '${widget.contenido.comentariosAudio} audios',
@@ -646,6 +657,8 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
                                     color: Colors.grey.shade500,
                                     fontSize: 10,
                                   ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
                               ],
                             ),

@@ -2,9 +2,10 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
+import '../config/endpoints.dart';
 
 class AuthService {
-  static const String baseUrl = 'https://sala-chat-backend-production.up.railway.app/api/auth';
+  static String get baseUrl => Endpoints.apiAuth;
   // Cache simple en memoria del usuario actual para evitar verify repetido lento
   static UserModel? _cachedUser;
   static DateTime? _cachedAt;

@@ -1,6 +1,7 @@
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:flutter/material.dart';
 import 'auth_service.dart';
+import '../config/endpoints.dart';
 
 class SocketService {
   static SocketService? _instance;
@@ -52,7 +53,7 @@ class SocketService {
 
       // Configurar socket (solo crear si no existe)
       _socket = io.io(
-        'https://sala-chat-backend-production.up.railway.app',
+        Endpoints.base,
         io.OptionBuilder()
             .setTransports(['websocket', 'polling'])
             .disableAutoConnect() // desactivar auto connect para controlar manualmente
@@ -214,6 +215,13 @@ class SocketService {
     _socket!.on('multimedia_compartido', (data) {
       debugPrint('🎯 Socket nativo recibió multimedia_compartido: $data');
       _notifyCallbacks('multimedia_compartido', data);
+    });
+
+    // Notificaciones de mapa (proximidad)
+    _socket!.off('map_notification');
+    _socket!.on('map_notification', (data) {
+      debugPrint('🗺️ map_notification recibida: $data');
+      _notifyCallbacks('map_notification', data);
     });
 
     // Eventos de contenido (legacy)

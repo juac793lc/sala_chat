@@ -2,11 +2,46 @@ const jwt = require('jsonwebtoken');
 const { getJwtSecret } = require('../middleware/auth');
 const { v4: uuidv4 } = require('uuid');
 const sqlite = require('../config/sqlite_db');
+const pushController = require('./pushController');
 
 // SUPER SIMPLE: Solo variables en memoria para pruebas
 const connectedUsers = new Map(); // usuarios conectados ahora
 const registeredUsersSet = new Set(); // IDs de usuarios únicos que han usado la app
 const markerTimers = new Map(); // timers para auto-eliminación de estrellas
+// Ubicaciones en memoria (última por socket)
+const userLocations = new Map(); // socketId -> { lat, lng, ts }
+// Marcadores activos en memoria para notificaciones por proximidad
+const activeMarkers = new Map(); // markerId -> markerData
+// Registro de quién ya fue notificado por cada marker
+const notifiedForMarker = new Map(); // markerId -> Set(socketId)
+
+// Parámetros de proximidad
+const TTL_LOCATION_MS = 60 * 1000; // 60s
+const PROXIMITY_RADIUS_METERS = 2000; // 2000m (solicitado)
+const MAX_NOTIF_PER_MARKER = 200;
+// Auto-remove for stars (50 minutes)
+const AUTO_REMOVE_MS = 50 * 60 * 1000; // 50 minutos
+
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const toRad = (v) => v * Math.PI / 180;
+  const R = 6371000; // Earth radius in meters
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Purga periódica de ubicaciones antiguas
+setInterval(() => {
+  const now = Date.now();
+  for (const [sockId, loc] of userLocations.entries()) {
+    if (!loc || (now - loc.ts) > TTL_LOCATION_MS) {
+      userLocations.delete(sockId);
+    }
+  }
+}, 30 * 1000);
 const simpleBD = {
   users: [],
   messages: []
@@ -318,18 +353,39 @@ const handleSocketConnection = async (socket, io) => {
         try {
           // Obtener desde SQLite (orden DESC ya aplicado en listMedia)
           const mediaRows = await sqlite.listMedia(roomId, 200, 0);
-          const historialContenido = mediaRows.map(m => ({
-            id: m.media_id,
-            mediaId: m.media_id,
-            autorId: m.user_id || '0',
-            autorNombre: `User_${m.user_id || '0'}`, // placeholder; podría resolverse si hubiera tabla usuarios
-            tipo: m.tipo || 'image',
-            url: m.url || '',
-            fechaCreacion: m.created_at,
-            comentariosTexto: 0,
-            comentariosAudio: 0,
-            duracionSegundos: m.duration_seconds || 0,
-            roomId: m.room_id,
+          // Enriquecer cada media con contadores de comentarios
+          const historialContenido = await Promise.all(mediaRows.map(async (m) => {
+            try {
+              const comentariosTexto = await sqlite.countComentariosTexto(m.media_id || m.id || m.mediaId || '');
+              const comentariosAudio = await sqlite.countComentariosAudio(m.media_id || m.id || m.mediaId || '');
+              return {
+                id: m.media_id,
+                mediaId: m.media_id,
+                autorId: m.user_id || '0',
+                autorNombre: m.user_nombre || `User_${m.user_id || '0'}`,
+                tipo: m.tipo || 'image',
+                url: m.url || '',
+                fechaCreacion: m.created_at,
+                comentariosTexto: comentariosTexto || 0,
+                comentariosAudio: comentariosAudio || 0,
+                duracionSegundos: m.duration_seconds || 0,
+                roomId: m.room_id,
+              };
+            } catch (e) {
+              return {
+                id: m.media_id,
+                mediaId: m.media_id,
+                autorId: m.user_id || '0',
+                autorNombre: m.user_nombre || `User_${m.user_id || '0'}`,
+                tipo: m.tipo || 'image',
+                url: m.url || '',
+                fechaCreacion: m.created_at,
+                comentariosTexto: 0,
+                comentariosAudio: 0,
+                duracionSegundos: m.duration_seconds || 0,
+                roomId: m.room_id,
+              };
+            }
           }));
           socket.emit('historial_contenido', historialContenido);
           console.log(`📚 Historial(SQLite) enviado a ${user.username}: ${historialContenido.length} elementos`);
@@ -370,7 +426,8 @@ const handleSocketConnection = async (socket, io) => {
         latitude: data.latitude,
         longitude: data.longitude,
         tipoReporte: normalizedTipo,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        expiresAt: Date.now() + AUTO_REMOVE_MS
       };
 
       try {
@@ -384,14 +441,97 @@ const handleSocketConnection = async (socket, io) => {
           tipo_reporte: normalizedTipo
         });
         
+        // Mantener marker activo en memoria para notificaciones por proximidad
+        activeMarkers.set(markerId, markerData);
+        notifiedForMarker.set(markerId, new Set());
+
+        // Notificar inmediatamente a sockets que tienen ubicación reciente y estén dentro del radio
+        try {
+          const now = Date.now();
+          const notifiedSet = notifiedForMarker.get(markerId) || new Set();
+          for (const [sockId, loc] of userLocations.entries()) {
+            if (!loc) continue;
+            if ((now - loc.ts) > TTL_LOCATION_MS) continue; // ubicación vieja
+            if (notifiedSet.size >= MAX_NOTIF_PER_MARKER) break;
+            const d = haversineMeters(markerData.latitude, markerData.longitude, loc.lat, loc.lng);
+            if (d <= PROXIMITY_RADIUS_METERS) {
+              // emitir notificación al socket (con mensaje legible)
+              try {
+                const distRound = Math.round(d);
+                console.log(`📣 Enviando map_notification a socket=${sockId} (dist=${distRound}m)`);
+                io.to(sockId).emit('map_notification', {
+                  notificationId: uuidv4(),
+                  type: 'marker',
+                  marker: markerData,
+                  distanceMeters: distRound,
+                  message: `Estrella activa • ${distRound} m`
+                });
+                notifiedSet.add(sockId);
+              } catch (emitErr) {
+                console.warn('⚠️ Error emitiendo map_notification a', sockId, emitErr.message || emitErr);
+              }
+            }
+          }
+          notifiedForMarker.set(markerId, notifiedSet);
+        } catch (notifyErr) {
+          console.error('❌ Error en notificación inicial de proximidad:', notifyErr);
+        }
+
+        // Además intentar enviar Web-Push a suscripciones registradas que pertenezcan a usuarios cercanos
+        try {
+          const subs = await sqlite.listPushSubscriptionsNear();
+          if (subs && subs.length > 0) {
+            // Reconstruir objects de subscription
+            const rebuilt = subs.map(s => ({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth }, user_id: s.user_id }));
+            // Filtrar por proximidad usando userLocations: si la subscripción tiene user_id
+            const targets = [];
+            const now = Date.now();
+            for (const sub of rebuilt) {
+              if (sub.user_id) {
+                // Buscar socket(s) con este user_id
+                for (const [sockId, u] of connectedUsers.entries()) {
+                  if (u.id === sub.user_id) {
+                    const loc = userLocations.get(sockId);
+                    if (loc && (now - loc.ts) <= TTL_LOCATION_MS) {
+                      const d = haversineMeters(markerData.latitude, markerData.longitude, loc.lat, loc.lng);
+                      if (d <= PROXIMITY_RADIUS_METERS) {
+                        targets.push({ subscription: { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } }, d });
+                      }
+                    }
+                  }
+                }
+              } else {
+                // si no hay user_id, incluir por defecto (dev)
+                targets.push({ subscription: { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } }, d: null });
+              }
+            }
+
+            if (targets.length > 0) {
+              // Construir payload incluyendo distancia si está disponible (usamos el primer target para distancia aproximada)
+              const firstDist = targets[0] && typeof targets[0].d === 'number' ? Math.round(targets[0].d) : null;
+              const title = 'Estrella activa';
+              const body = firstDist ? `${markerData.username} creó una estrella a ${firstDist} m` : `${markerData.username} creó una estrella cerca de ti`;
+              const payload = { title: title, body: body, marker: markerData, timestamp: Date.now() };
+              const subsToSend = targets.map(t => t.subscription);
+              // Enviar en background (no bloquear)
+              pushController.sendPushToSubscriptions(subsToSend, payload).then(results => {
+                console.log(`📬 Push enviados: ${results.length}`);
+              }).catch(e => console.warn('⚠️ Error enviando pushes:', e.message || e));
+            }
+          }
+        } catch (pushErr) {
+          console.error('❌ Error intentando enviar Web-Push:', pushErr.message || pushErr);
+        }
+
         // Enviar a todos los usuarios conectados (incluyendo el que lo creó)
         socket.broadcast.emit('marker_added', markerData);
         socket.emit('marker_confirmed', markerData);
         
         console.log(`✅ Marcador ${markerId} guardado en BD`);
         
-        // Si es estrella (policia), configurar auto-eliminación en 50 minutos
-  if (normalizedTipo === 'interes') {
+    // Si es estrella (policia/interes/estrella), configurar auto-eliminación en 50 minutos
+    const tipoLower = (normalizedTipo || '').toString().toLowerCase();
+    if (tipoLower === 'interes' || tipoLower === 'policia' || tipoLower === 'estrella') {
           const timer = setTimeout(async () => {
             try {
               // Auto-eliminar de la base de datos
@@ -411,20 +551,57 @@ const handleSocketConnection = async (socket, io) => {
               
               // Limpiar timer del mapa
               markerTimers.delete(markerId);
+              // limpiar estructuras de notificación
+              activeMarkers.delete(markerId);
+              notifiedForMarker.delete(markerId);
               
               console.log(`🗑️ Estrella ${markerId} auto-eliminada después de 50 min`);
             } catch (error) {
               console.error('❌ Error auto-eliminando marcador:', error);
             }
-          }, 50 * 60 * 1000); // 50 minutos
+          }, AUTO_REMOVE_MS); // 50 minutos (const AUTO_REMOVE_MS)
           
           // Guardar referencia del timer
           markerTimers.set(markerId, timer);
-          console.log(`⏰ Timer de 50min configurado para estrella ${markerId}`);
+          console.log(`⏰ Timer de 50min configurado para marcador ${markerId} tipo=${normalizedTipo}`);
         }
       } catch (error) {
         console.error('❌ Error guardando marcador:', error);
         socket.emit('marker_error', { message: 'Error guardando marcador' });
+      }
+    });
+
+    // Handler para que cliente actualice su ubicación (opt-in)
+    socket.on('update_location', (data) => {
+      try {
+        if (!data || typeof data.lat !== 'number' || typeof data.lng !== 'number') return;
+        const ts = data.ts ? Date.parse(data.ts) : Date.now();
+        userLocations.set(socket.id, { lat: data.lat, lng: data.lng, ts: ts });
+
+        // Si hay marcadores activos en la sala, notificar a este socket si aplica
+        const now = Date.now();
+        for (const [markerId, marker] of activeMarkers.entries()) {
+          // evitar notificar si ya fue notificado
+          const notifiedSet = notifiedForMarker.get(markerId) || new Set();
+          if (notifiedSet.has(socket.id)) continue;
+          if ((now - ts) > TTL_LOCATION_MS) continue; // ubicación vieja
+          const d = haversineMeters(marker.latitude, marker.longitude, data.lat, data.lng);
+          if (d <= PROXIMITY_RADIUS_METERS) {
+            const distRound = Math.round(d);
+            console.log(`📣 Enviando map_notification a socket=${socket.id} (dist=${distRound}m) por update_location`);
+            io.to(socket.id).emit('map_notification', {
+              notificationId: uuidv4(),
+              type: 'marker',
+              marker: marker,
+              distanceMeters: distRound,
+              message: `Estrella activa • ${distRound} m`
+            });
+            notifiedSet.add(socket.id);
+            notifiedForMarker.set(markerId, notifiedSet);
+          }
+        }
+      } catch (err) {
+        console.error('⚠️ Error en update_location:', err.message || err);
       }
     });
 

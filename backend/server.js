@@ -124,6 +124,8 @@ console.log('�📊 Estadísticas iniciales memoria:', db.getStats());
 app.use('/api/auth', authRoutes);
 app.use('/api/media', mediaRoutes);
 app.use('/api/messages', require('./src/routes/messages'));
+// Rutas para Web Push (PWA)
+app.use('/api/push', require('./src/routes/push'));
 
 // Ruta de health check
 app.get('/health', (req, res) => {

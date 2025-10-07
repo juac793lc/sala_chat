@@ -2,9 +2,10 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../models/comentario.dart';
+import '../config/endpoints.dart';
 
 class HistoryService {
-  static const String baseUrl = 'https://sala-chat-backend-production.up.railway.app/api';
+  static String get baseUrl => Endpoints.base + '/api';
   // Cache en memoria por room para evitar spam y manejar 429
   static final Map<String, _RoomCacheEntry> _roomCache = {};
   static const Duration _cacheTtl = Duration(seconds: 30); // TTL principal
