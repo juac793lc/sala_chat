@@ -1,5 +1,8 @@
 {
   "dependencies": {
     "better-sqlite3": "^12.4.1"
+  },
+  "scripts": {
+    "postinstall": "cd backend && npm ci"
   }
 }
