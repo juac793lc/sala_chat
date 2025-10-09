@@ -758,215 +758,169 @@ class _MapaWidgetState extends State<MapaWidget> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
+    final screenHeight = MediaQuery.of(context).size.height;
+    final mapHeight = screenHeight * 0.7; // 70% de la pantalla
+
+    return SizedBox(
+      height: mapHeight,
+      width: double.infinity,
+      child: Stack(
         children: [
-          // Header con controles
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.blue.shade50,
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(16),
-                topRight: Radius.circular(16),
+          // Mapa ocupando todo el area del SizedBox
+          Positioned.fill(
+            child: FlutterMap(
+              mapController: _mapController,
+              options: MapOptions(
+                initialCenter: _currentCenter,
+                initialZoom: 13.0,
+                onTap: (tapPosition, point) {
+                  _onMapTap(point);
+                },
               ),
-            ),
-            child: Row(
               children: [
-                const Icon(Icons.map, color: Colors.blue, size: 20),
-                const SizedBox(width: 8),
-                const Text(
-                  'Mapa - Reportes',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.blue,
-                  ),
+                TileLayer(
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  userAgentPackageName: 'com.example.sala_chat',
                 ),
-                const Spacer(),
-                // Botón Mi ubicación
-                GestureDetector(
-                  onTap: _getCurrentLocation,
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.green.shade100,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: _isLoading
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Icon(
-                            Icons.my_location,
-                            color: Colors.green.shade700,
-                            size: 16,
-                          ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                // Botón cerrar
-                GestureDetector(
-                  onTap: widget.onClose,
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.red.shade100,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(
-                      Icons.close,
-                      color: Colors.red.shade700,
-                      size: 16,
-                    ),
-                  ),
+                MarkerLayer(
+                  markers: [..._markers, ..._sharedMarkers],
                 ),
               ],
             ),
           ),
 
-          // Panel de selección compacto
-          Container(
-            height: 50,
-            padding: const EdgeInsets.symmetric(vertical: 2),
-            decoration: BoxDecoration(
-              color: Colors.grey.shade50,
-              border: Border(
-                bottom: BorderSide(color: Colors.grey.shade200),
-              ),
-            ),
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              itemCount: TiposReporte.todos.length,
-              itemBuilder: (context, index) {
-                final tipoInfo = TiposReporte.todos[index];
-                final isSelected = _tipoSeleccionado == tipoInfo.tipo;
-                
-                return Container(
-                  width: 46, // Más compacto
-                  margin: const EdgeInsets.only(right: 4),
-                  child: GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _tipoSeleccionado = isSelected ? null : tipoInfo.tipo;
-                      });
-                    },
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          width: 32,
-                          height: 32,
-                          decoration: BoxDecoration(
-                            color: isSelected ? tipoInfo.color : Colors.white,
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: tipoInfo.color,
-                              width: isSelected ? 2 : 1,
-                            ),
-                            boxShadow: isSelected ? [
-                              BoxShadow(
-                                color: tipoInfo.color.withValues(alpha: 0.2),
-                                blurRadius: 2,
-                                offset: const Offset(0, 1),
-                              ),
-                            ] : null,
-                          ),
-                          child: Icon(
-                            tipoInfo.icono,
-                            color: isSelected ? Colors.white : tipoInfo.color,
-                            size: 14,
-                          ),
-                        ),
-                        const SizedBox(height: 1),
-                        Text(
-                          tipoInfo.nombre,
-                          textAlign: TextAlign.center,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 7,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                            color: isSelected ? tipoInfo.color : Colors.grey.shade600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          
-          // Mapa real con panel lateral
-          Expanded(
-            child: ClipRRect(
-              borderRadius: const BorderRadius.only(
-                bottomLeft: Radius.circular(16),
-                bottomRight: Radius.circular(16),
-              ),
-              child: Stack(
-                children: [
-                  FlutterMap(
-                    mapController: _mapController,
-                    options: MapOptions(
-                      initialCenter: _currentCenter,
-                      initialZoom: 13.0,
-                      onTap: (tapPosition, point) {
-                        _onMapTap(point);
-                      },
-                    ),
+          // Overlay de carga inicial sobre el mapa
+          if (_isLoading)
+            Positioned.fill(
+              child: Container(
+                color: Colors.white.withValues(alpha: 0.8),
+                child: const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      TileLayer(
-                        urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                        userAgentPackageName: 'com.example.sala_chat',
+                      CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
                       ),
-                      MarkerLayer(
-                        markers: [..._markers, ..._sharedMarkers],
+                      SizedBox(height: 12),
+                      Text(
+                        'Obteniendo tu ubicación...',
+                        style: TextStyle(
+                          color: Colors.blue,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ],
                   ),
-                  
-                  // Overlay de carga inicial
-                  if (_isLoading)
-                    Container(
-                      color: Colors.white.withValues(alpha: 0.8),
-                      child: const Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            CircularProgressIndicator(
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
-                            ),
-                            SizedBox(height: 12),
-                            Text(
-                              'Obteniendo tu ubicación...',
-                              style: TextStyle(
-                                color: Colors.blue,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
+                ),
+              ),
+            ),
+
+          // Floating left column with controls and report-type icons
+          Positioned(
+            top: 12,
+            left: 8,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.28),
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.12),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Small title row
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.map, color: Colors.white, size: 18),
+                      SizedBox(width: 6),
+                      Text(
+                        'Mapa',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                    ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Vertical list of report-type icons (floating)
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: List.generate(TiposReporte.todos.length, (index) {
+                      final tipoInfo = TiposReporte.todos[index];
+                      final isSelected = _tipoSeleccionado == tipoInfo.tipo;
+
+                      return Container(
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        child: GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _tipoSeleccionado = isSelected ? null : tipoInfo.tipo;
+                            });
+                          },
+                          child: Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: isSelected ? tipoInfo.color : Colors.white.withOpacity(0.06),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: tipoInfo.color, width: isSelected ? 2 : 1),
+                            ),
+                            child: Icon(
+                              tipoInfo.icono,
+                              color: isSelected ? Colors.white : tipoInfo.color,
+                              size: 18,
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  // Action buttons (ubicación y cerrar)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      GestureDetector(
+                        onTap: _getCurrentLocation,
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withOpacity(0.95),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: _isLoading
+                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                              : const Icon(Icons.my_location, color: Colors.white, size: 16),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: widget.onClose,
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.red.withOpacity(0.95),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(Icons.close, color: Colors.white, size: 16),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),

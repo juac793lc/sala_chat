@@ -5,6 +5,7 @@ import 'package:audioplayers/audioplayers.dart';
 import '../models/contenido_multimedia.dart';
 import 'dart:html' as html; // ignore: avoid_web_libraries_in_flutter
 import 'dart:ui_web' as ui;
+import 'dart:async';
 
 class ContenidoMultimediaWidget extends StatefulWidget {
   final ContenidoMultimedia contenido;
@@ -62,8 +63,13 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
   @override
   void dispose() {
     _audioPlayer.dispose();
+    // Cancel any image stream listeners? (listeners are removed after receive)
     super.dispose();
   }
+
+  // Cache for computed BoxFit per image URL to avoid recalculating
+  final Map<String, BoxFit> _imageFitCache = {};
+  final Set<String> _resolvingFits = {};
 
   // Función para reproducir/pausar audio
   Future<void> _toggleAudioPlayback() async {
@@ -277,15 +283,39 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
         widget.contenido.url.startsWith('/uploads/')) {
       
       // Usar Image.network para URLs remotas, blobs, y rutas del servidor
-      return Image.network(
-        widget.contenido.url,
-        fit: BoxFit.contain,
-        width: double.infinity,
-        height: double.infinity,
-        filterQuality: FilterQuality.medium,
-        cacheWidth: 400,
-        cacheHeight: 400,
-        errorBuilder: (context, error, stackTrace) {
+      // Determine fit: if we already computed fit for this URL use it; otherwise default to contain
+      final cachedFit = _imageFitCache[widget.contenido.url] ?? BoxFit.contain;
+      // Start async resolve if not cached
+      if (!_imageFitCache.containsKey(widget.contenido.url) && !_resolvingFits.contains(widget.contenido.url)) {
+        _resolveImageFit(widget.contenido.url, false);
+      }
+
+      return InteractiveViewer(
+        clipBehavior: Clip.hardEdge,
+        panEnabled: true,
+        scaleEnabled: true,
+        minScale: 1.0,
+        maxScale: 4.0,
+        child: Image.network(
+          widget.contenido.url,
+          fit: cachedFit,
+          loadingBuilder: (context, child, loadingProgress) {
+            if (loadingProgress == null) return child;
+            final expected = loadingProgress.expectedTotalBytes;
+            final loaded = loadingProgress.cumulativeBytesLoaded;
+            final progress = (expected != null && expected > 0) ? loaded / expected : null;
+            return Container(
+              color: Colors.grey.shade200,
+              child: Center(
+                child: SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: CircularProgressIndicator(value: progress),
+                ),
+              ),
+            );
+          },
+          errorBuilder: (context, error, stackTrace) {
           return Container(
             width: double.infinity,
             height: double.infinity,
@@ -317,18 +347,27 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
             ),
           );
         },
+        ),
       );
     } else if (!kIsWeb) {
       // Dispositivos nativos: usar Image.file solo para paths locales
-      return Image.file(
-        File(widget.contenido.url),
-        fit: BoxFit.contain,
-        width: double.infinity,
-        height: double.infinity,
-        filterQuality: FilterQuality.medium,
-        cacheWidth: 400,
-        cacheHeight: 400,
-        errorBuilder: (context, error, stackTrace) {
+      final cachedFileFit = _imageFitCache[widget.contenido.url] ?? BoxFit.contain;
+      if (!_imageFitCache.containsKey(widget.contenido.url) && !_resolvingFits.contains(widget.contenido.url)) {
+        _resolveImageFit(widget.contenido.url, true);
+      }
+
+      return InteractiveViewer(
+        clipBehavior: Clip.hardEdge,
+        panEnabled: true,
+        scaleEnabled: true,
+        minScale: 1.0,
+        maxScale: 4.0,
+        child: Image.file(
+          File(widget.contenido.url),
+          fit: cachedFileFit,
+          width: double.infinity,
+          height: double.infinity,
+          errorBuilder: (context, error, stackTrace) {
           return Container(
             width: double.infinity,
             height: double.infinity,
@@ -361,6 +400,7 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
             ),
           );
         },
+        ),
       );
     } else {
       // Placeholder para cuando no hay imagen
@@ -388,8 +428,10 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
   Widget _buildContenidoPreview() {
     switch (widget.contenido.tipo) {
       case TipoContenido.imagen:
+        final screenHeight = MediaQuery.of(context).size.height;
+        final desired = (screenHeight * 0.65).clamp(260.0, 700.0);
         return SizedBox(
-          height: 250,
+          height: desired,
           width: double.infinity,
           child: Stack(
             children: [
@@ -452,8 +494,10 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
         );
         
       case TipoContenido.video:
+        final screenHeight = MediaQuery.of(context).size.height;
+        final desired = (screenHeight * 0.65).clamp(260.0, 700.0);
         return SizedBox(
-          height: 250,
+          height: desired,
           width: double.infinity,
           child: Stack(
             children: [
@@ -518,6 +562,44 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
         
       case TipoContenido.audio:
         return _buildAudioWidget();
+    }
+  }
+
+  // Resolve natural size of image to pick a better BoxFit (fitWidth when image is wide)
+  void _resolveImageFit(String url, bool isFile) {
+    try {
+      _resolvingFits.add(url);
+      ImageProvider provider;
+      if (isFile) {
+        provider = FileImage(File(url));
+      } else {
+        provider = NetworkImage(url);
+      }
+  final stream = provider.resolve(const ImageConfiguration());
+      ImageStreamListener? listener;
+      listener = ImageStreamListener((info, _) {
+        try {
+          final img = info.image;
+          final w = img.width.toDouble();
+          final h = img.height.toDouble();
+          final aspect = w / h;
+          // If image is wide (aspect ratio > 1.6) prefer filling width
+          final fit = (aspect > 1.6) ? BoxFit.fitWidth : BoxFit.contain;
+          _imageFitCache[url] = fit;
+          if (mounted) setState(() {});
+        } catch (e) {
+          // ignore
+        } finally {
+          if (listener != null) stream.removeListener(listener);
+          _resolvingFits.remove(url);
+        }
+      }, onError: (err, stack) {
+        if (listener != null) stream.removeListener(listener);
+        _resolvingFits.remove(url);
+      });
+      stream.addListener(listener);
+    } catch (e) {
+      _resolvingFits.remove(url);
     }
   }
 

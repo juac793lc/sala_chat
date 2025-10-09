@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'dart:html' as html; // solo para web: obtener geolocalización
+import 'dart:html' as html; // solo para web: obtener geolocalización y recibir mensajes del service worker
 import '../models/usuario.dart';
 import '../models/contenido_multimedia.dart';
 import '../widgets/header_widget.dart';
@@ -54,6 +54,44 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
 
     if (kIsWeb) {
       _pushService = PushService(Endpoints.base);
+    }
+
+    // Listener para mensajes enviados desde el Service Worker (postMessage)
+    if (kIsWeb) {
+      try {
+        html.window.onMessage.listen((event) {
+          try {
+            final data = event.data;
+            if (data == null || data is! Map) return;
+            final type = data['type'];
+            final payload = data['payload'];
+            if (type == 'push') {
+              // Mensaje de push: mostrar SnackBar y opcionalmente abrir UI
+              if (!mounted) return;
+              final title = payload['title'] ?? 'Sala Chat';
+              final body = payload['body'] ?? '';
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('$title • $body'),
+                  duration: const Duration(seconds: 6),
+                  action: SnackBarAction(
+                    label: 'Ver',
+                    onPressed: () => setState(() { _mostrarBliz = true; }),
+                  ),
+                ),
+              );
+            } else if (type == 'notificationclick') {
+              // Usuario clickeó notificación: abrir mapa (o navegar)
+              if (!mounted) return;
+              setState(() { _mostrarBliz = true; });
+            }
+          } catch (e) {
+            debugPrint('Error procesando mensaje SW: $e');
+          }
+        });
+      } catch (e) {
+        debugPrint('No se pudo registrar listener mensaje SW: $e');
+      }
     }
 
     // Registrar listener para notificaciones de mapa (proximidad)
@@ -498,13 +536,11 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
               AnimatedContainer(
                 duration: const Duration(milliseconds: 300),
                 curve: Curves.easeInOut,
-                height: _mostrarBliz ? MediaQuery.of(context).size.height * 0.65 : 0,
+                // Subir a 70% de la pantalla para que el mapa se vea más grande
+                height: _mostrarBliz ? MediaQuery.of(context).size.height * 0.7 : 0,
                 child: _mostrarBliz
-                    ? Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 16),
-                        child: MapaWidget(
-                          onClose: _cerrarBliz,
-                        ),
+                    ? MapaWidget(
+                        onClose: _cerrarBliz,
                       )
                     : null,
               ),

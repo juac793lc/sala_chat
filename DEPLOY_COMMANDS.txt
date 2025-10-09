@@ -1,0 +1,65 @@
+Guía rápida: despliegue en Railway desde PowerShell
+
+Contexto:
+- Esta guía asume que tu proyecto está en C:\Users\Lenovo\Desktop\sala_chat
+- Usa Railway (https://railway.app) y Railway CLI instalado
+- Ya añadimos `railway.json`, `Procfile` y ajustes para que el backend arranque correctamente
+
+1) Abrir PowerShell y situarse en el repo
+Set-Location -Path 'C:\Users\Lenovo\Desktop\sala_chat'
+
+2) (Una sola vez) Login en Railway
+railway login
+
+3) (Una sola vez) Linkear la carpeta con el proyecto Railway existente (interactivo)
+railway link
+# Si ya conoces el projectId puedes usar:
+# railway link --project <projectId>
+
+4) Asegurarse de que los cambios están commiteados y pusheados a main
+git add -A
+git commit -m "Despliegue: actualizar" || Write-Host 'No changes to commit'
+git push origin main
+
+5) (Opcional) Asegurar variables de entorno necesarias (reemplaza valores reales)
+railway variables set NODE_ENV production
+railway variables set PORT 8080
+railway variables set JWT_SECRET "tu_jwt_secret"
+railway variables set VAPID_PUBLIC_KEY "tu_vapid_public_key"
+railway variables set VAPID_PRIVATE_KEY "tu_vapid_private_key"
+
+6) Forzar deploy desde la terminal
+railway up
+# Alternativa no interactiva (si linkeaste proyecto):
+# railway up -- --environment production
+
+7) Ver logs en tiempo real
+railway logs --tail
+# O ver últimas 200 líneas:
+railway logs --lines 200
+
+8) Abrir proyecto en dashboard / navegador
+railway open
+# O buscar la URL en el dashboard y llamar al health endpoint:
+# curl -i https://<tu-servicio>.up.railway.app/health
+
+Notas y soluciones rápidas
+- Si Railpack no encuentra start command: asegúrate de tener `Procfile` con la línea `web: npm --prefix backend start` o que `package.json` tenga script "start" y/o `main` apuntando a `backend/server.js`.
+
+- Si ves errores "Cannot find module 'express'":
+  - Verifica que `backend/package.json` contiene express en dependencies.
+  - Asegúrate de tener `postinstall` en root package.json que ejecute `cd backend && npm ci` (esto lo agregamos en este proyecto).
+  - Añade un `package-lock.json` en la raíz para mayor determinismo: `npm install --package-lock-only`.
+
+- SQLite en Railway:
+  - Ten en cuenta que archivos en disco pueden no persistir entre deploys. Considera migrar a PostgreSQL (Railway addon) para datos permanentes.
+
+- Si el deploy falla con 500 al subir el paquete: reintenta `railway up` después de unos minutos o conecta el repo via GitHub en Railway para builds desde GitHub.
+
+- Si necesitas volver a crear el build manualmente:
+  - Verifica logs del build con el link que `railway up` imprime o con el dashboard → Services → Builds.
+
+Contacto y debugging
+- Si `railway up` falla, copia las últimas 50–200 líneas del Build Logs y pégalas en un mensaje. Yo te indicaré el fix exacto (ej: añadir `Procfile`, ajustar `package.json`, instalar dependencias, migrar DB).
+
+Fin de la guía.

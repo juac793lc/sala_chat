@@ -59,7 +59,20 @@ async function sendPushToSubscription(subscription, payload) {
     return true;
   } catch (e) {
     // 410 Gone o 404 indicarían que la suscripción no es válida
-    console.warn('⚠️ Error enviando push:', e.statusCode || e.code || e.message || e);
+    const status = e.statusCode || e.code || (e && e.body && e.body.status) || null;
+    console.warn('⚠️ Error enviando push:', status || e.message || e);
+    try {
+      if (status === 410 || status === 404 || status === 403) {
+        // Intentar extraer endpoint del objeto subscription para eliminar
+        const endpoint = subscription && subscription.endpoint ? subscription.endpoint : null;
+        if (endpoint) {
+          console.log('🧹 Eliminando suscripción inválida:', endpoint);
+          await sqlite.removePushSubscription(endpoint);
+        }
+      }
+    } catch (cleanupErr) {
+      console.warn('⚠️ Error limpiando suscripción inválida:', cleanupErr.message || cleanupErr);
+    }
     return false;
   }
 }
@@ -67,7 +80,36 @@ async function sendPushToSubscription(subscription, payload) {
 // Enviar notificaciones a subscripciones cercanas: se espera una lista de subscription objects ya construidos
 async function sendPushToSubscriptions(subscriptions, payload) {
   const results = [];
+  // Deduplicate: prefer one subscription per p256dh (client key) and fall back to endpoint
+  const seenEndpoints = new Set();
+  const seenKeys = new Set();
+  const uniqueSubs = [];
+
+  // First pass: prefer unique p256dh
   for (const sub of subscriptions) {
+    if (!sub || !sub.endpoint) continue;
+    const key = sub.keys && sub.keys.p256dh ? sub.keys.p256dh : null;
+    if (key) {
+      if (seenKeys.has(key)) continue; // already have a subscription for this client key
+      seenKeys.add(key);
+      seenEndpoints.add(sub.endpoint);
+      uniqueSubs.push(sub);
+    }
+  }
+
+  // Second pass: add remaining subscriptions by endpoint if not already included
+  for (const sub of subscriptions) {
+    if (!sub || !sub.endpoint) continue;
+    if (seenEndpoints.has(sub.endpoint)) continue;
+    seenEndpoints.add(sub.endpoint);
+    uniqueSubs.push(sub);
+  }
+
+  if (uniqueSubs.length !== subscriptions.length) {
+    console.log(`🔍 PushController: reducidas ${subscriptions.length - uniqueSubs.length} suscripciones para evitar duplicados (endpoint/p256dh)`);
+  }
+
+  for (const sub of uniqueSubs) {
     try {
       const ok = await sendPushToSubscription(sub, payload);
       results.push({ endpoint: sub.endpoint, ok });
@@ -75,6 +117,7 @@ async function sendPushToSubscriptions(subscriptions, payload) {
       results.push({ endpoint: sub.endpoint, ok: false, error: e.message || e });
     }
   }
+  console.log(`📬 PushController: enviados ${results.filter(r=>r.ok).length}/${results.length} pushes únicos`);
   return results;
 }
 

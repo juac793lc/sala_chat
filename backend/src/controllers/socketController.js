@@ -22,6 +22,130 @@ const MAX_NOTIF_PER_MARKER = 200;
 // Auto-remove for stars (50 minutes)
 const AUTO_REMOVE_MS = 50 * 60 * 1000; // 50 minutos
 
+// Internal flag to ensure we schedule existing markers only once
+let _markersInitialized = false;
+
+/**
+ * Schedule a single auto-remove timer for a marker using remaining time calculated
+ * from its created_at timestamp (createdAtMs). Emits via the provided io instance.
+ */
+function _scheduleAutoRemove(markerId, createdAtMs, normalizedTipo, io) {
+  try {
+    const expiresAt = (createdAtMs || Date.now()) + AUTO_REMOVE_MS;
+    const remaining = expiresAt - Date.now();
+
+    if (remaining <= 0) {
+      // Already expired -> deactivate immediately
+      sqlite.deactivateMarker(markerId).then(() => {
+        try {
+          io && io.emit && io.emit('marker_auto_removed', {
+            markerId,
+            reason: 'expired',
+            message: 'Estrella eliminada automáticamente (50 min)'
+          });
+        } catch (e) { console.warn('Emit error after immediate deactivate:', e); }
+        markerTimers.delete(markerId);
+        activeMarkers.delete(markerId);
+        notifiedForMarker.delete(markerId);
+      }).catch(e => console.error('Error deactivating expired marker on startup:', e));
+      return;
+    }
+
+    // If there's already a timer, clear it first
+    if (markerTimers.has(markerId)) {
+      clearTimeout(markerTimers.get(markerId));
+      markerTimers.delete(markerId);
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        await sqlite.deactivateMarker(markerId);
+        try {
+          io && io.emit && io.emit('marker_auto_removed', {
+            markerId: markerId,
+            reason: 'expired',
+            message: 'Estrella eliminada automáticamente (50 min)'
+          });
+        } catch (e) { console.warn('Emit error on auto-remove:', e); }
+
+        markerTimers.delete(markerId);
+        activeMarkers.delete(markerId);
+        notifiedForMarker.delete(markerId);
+        console.log(`🗑️ Estrella ${markerId} auto-eliminada por timer (startup/reschedule)`);
+      } catch (error) {
+        console.error('❌ Error auto-eliminando marcador (timer):', error);
+      }
+    }, remaining);
+
+    markerTimers.set(markerId, timer);
+    console.log(`⏰ (rescheduled) Timer de ${Math.round(remaining/1000)}s para marcador ${markerId} tipo=${normalizedTipo}`);
+  } catch (e) {
+    console.error('Error scheduling auto-remove for marker:', e);
+  }
+}
+
+/**
+ * Load existing active markers from DB and schedule their auto-remove timers.
+ * This should be called once after the server has a valid io instance.
+ */
+async function scheduleExistingMarkers(io) {
+  if (_markersInitialized) return;
+  _markersInitialized = true;
+  try {
+    const markers = await sqlite.getAllActiveMarkers();
+    if (!markers || markers.length === 0) return;
+    console.log(`🔁 Rescheduling ${markers.length} marker timers from DB`);
+    for (const m of markers) {
+      const markerId = m.marker_id;
+      const createdAtMs = m.created_at_ms || (m.created_at ? Date.parse(m.created_at) : Date.now());
+      const tipo = m.tipo_reporte || 'interes';
+      // Keep in-memory activeMarkers in sync
+      activeMarkers.set(markerId, {
+        id: markerId,
+        userId: m.user_id,
+        username: m.user_nombre,
+        latitude: m.latitude,
+        longitude: m.longitude,
+        tipoReporte: tipo,
+        timestamp: createdAtMs,
+        expiresAt: createdAtMs + AUTO_REMOVE_MS
+      });
+      notifiedForMarker.set(markerId, new Set());
+      _scheduleAutoRemove(markerId, createdAtMs, tipo, io);
+    }
+  } catch (e) {
+    console.error('❌ Error rescheduling existing markers:', e);
+  }
+}
+
+// Periodic sweep as a safety net: every minute check DB for expired markers and deactivate them.
+setInterval(async () => {
+  try {
+    const markers = await sqlite.getAllActiveMarkers();
+    const now = Date.now();
+    for (const m of markers) {
+      const createdAtMs = m.created_at_ms || (m.created_at ? Date.parse(m.created_at) : now);
+      const expiresAt = createdAtMs + AUTO_REMOVE_MS;
+      if (expiresAt <= now) {
+        try {
+          await sqlite.deactivateMarker(m.marker_id);
+          // emit a broadcast if io available via any connected socket - we don't have io here,
+          // clients will discover via their next refresh/requests, but we log it.
+          console.log(`🧹 Sweep: marker ${m.marker_id} expired and deactivated`);
+          markerTimers.delete(m.marker_id);
+          activeMarkers.delete(m.marker_id);
+          notifiedForMarker.delete(m.marker_id);
+        } catch (e) {
+          console.warn('Sweep: error deactivating marker', m.marker_id, e.message || e);
+        }
+      }
+    }
+  } catch (e) {
+    // Non-fatal
+    // console.debug('Sweep error:', e.message || e);
+  }
+}, 60 * 1000);
+
 function haversineMeters(lat1, lon1, lat2, lon2) {
   const toRad = (v) => v * Math.PI / 180;
   const R = 6371000; // Earth radius in meters
@@ -94,6 +218,8 @@ const handleSocketConnection = async (socket, io) => {
   try {
     // Autenticar
     const user = await authenticateSocket(socket);
+    // On first connection, reschedule any existing markers from DB
+    try { scheduleExistingMarkers(io); } catch (e) { console.warn('Could not schedule existing markers:', e.message || e); }
     
     // Agregar a conectados
     connectedUsers.set(socket.id, user);
@@ -430,6 +556,9 @@ const handleSocketConnection = async (socket, io) => {
         expiresAt: Date.now() + AUTO_REMOVE_MS
       };
 
+      // Normalized lower-case tipo for later checks
+      const tipoLower = (normalizedTipo || '').toString().toLowerCase();
+
       try {
         // Guardar en base de datos
         await sqlite.insertMarker({
@@ -477,50 +606,28 @@ const handleSocketConnection = async (socket, io) => {
           console.error('❌ Error en notificación inicial de proximidad:', notifyErr);
         }
 
-        // Además intentar enviar Web-Push a suscripciones registradas que pertenezcan a usuarios cercanos
+        // Enviar Web-Push a TODAS las suscripciones registradas sólo para estrellas ('interes')
         try {
-          const subs = await sqlite.listPushSubscriptionsNear();
-          if (subs && subs.length > 0) {
-            // Reconstruir objects de subscription
-            const rebuilt = subs.map(s => ({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth }, user_id: s.user_id }));
-            // Filtrar por proximidad usando userLocations: si la subscripción tiene user_id
-            const targets = [];
-            const now = Date.now();
-            for (const sub of rebuilt) {
-              if (sub.user_id) {
-                // Buscar socket(s) con este user_id
-                for (const [sockId, u] of connectedUsers.entries()) {
-                  if (u.id === sub.user_id) {
-                    const loc = userLocations.get(sockId);
-                    if (loc && (now - loc.ts) <= TTL_LOCATION_MS) {
-                      const d = haversineMeters(markerData.latitude, markerData.longitude, loc.lat, loc.lng);
-                      if (d <= PROXIMITY_RADIUS_METERS) {
-                        targets.push({ subscription: { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } }, d });
-                      }
-                    }
-                  }
-                }
-              } else {
-                // si no hay user_id, incluir por defecto (dev)
-                targets.push({ subscription: { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } }, d: null });
-              }
-            }
-
-            if (targets.length > 0) {
-              // Construir payload incluyendo distancia si está disponible (usamos el primer target para distancia aproximada)
-              const firstDist = targets[0] && typeof targets[0].d === 'number' ? Math.round(targets[0].d) : null;
-              const title = 'Estrella activa';
-              const body = firstDist ? `${markerData.username} creó una estrella a ${firstDist} m` : `${markerData.username} creó una estrella cerca de ti`;
+          if (tipoLower === 'interes') {
+            const subs = await sqlite.listPushSubscriptionsNear();
+            if (subs && subs.length > 0) {
+              const rebuilt = subs.map(s => ({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }));
+              const title = '⭐ Estrella activa';
+              const body = `⭐ ${markerData.username} creó una estrella`;
               const payload = { title: title, body: body, marker: markerData, timestamp: Date.now() };
-              const subsToSend = targets.map(t => t.subscription);
-              // Enviar en background (no bloquear)
-              pushController.sendPushToSubscriptions(subsToSend, payload).then(results => {
-                console.log(`📬 Push enviados: ${results.length}`);
-              }).catch(e => console.warn('⚠️ Error enviando pushes:', e.message || e));
+              // Enviar sin bloquear la ruta principal
+              pushController.sendPushToSubscriptions(rebuilt, payload).then(results => {
+                console.log(`📬 Push enviados a todos los suscriptores: ${results.length}`);
+              }).catch(e => console.warn('⚠️ Error enviando pushes a todos:', e.message || e));
+            } else {
+              console.log('ℹ️ No hay suscripciones registradas para enviar push');
             }
+          } else {
+            // No enviar push global para marcadores no-dinámicos
+            // (los sockets cercanos ya reciben 'map_notification' por proximidad si aplica)
           }
         } catch (pushErr) {
-          console.error('❌ Error intentando enviar Web-Push:', pushErr.message || pushErr);
+          console.error('❌ Error intentando enviar Web-Push a todos:', pushErr.message || pushErr);
         }
 
         // Enviar a todos los usuarios conectados (incluyendo el que lo creó)
@@ -529,9 +636,8 @@ const handleSocketConnection = async (socket, io) => {
         
         console.log(`✅ Marcador ${markerId} guardado en BD`);
         
-    // Si es estrella (policia/interes/estrella), configurar auto-eliminación en 50 minutos
-    const tipoLower = (normalizedTipo || '').toString().toLowerCase();
-    if (tipoLower === 'interes' || tipoLower === 'policia' || tipoLower === 'estrella') {
+  // Si es estrella (policia/interes/estrella), configurar auto-eliminación en 50 minutos
+  if (tipoLower === 'interes' || tipoLower === 'policia' || tipoLower === 'estrella') {
           const timer = setTimeout(async () => {
             try {
               // Auto-eliminar de la base de datos

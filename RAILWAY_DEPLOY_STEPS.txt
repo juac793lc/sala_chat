@@ -1,0 +1,158 @@
+RAILWAY - Pasos paso a paso para desplegar el backend (PowerShell)
+
+Resumen
+------
+Este documento contiene los comandos y pasos para desplegar el backend en Railway desde Windows PowerShell. Incluye: pre-requisitos, linkear el repo con Railway, deploy (up), cómo establecer variables de entorno (VAPID, JWT), ver logs y validación.
+
+Pre-requisitos
+-------------
+- Tener Railway CLI instalada y logueada.
+  - Instalar: npm i -g railway
+  - Login: railway login
+- Node.js y npm (para builds locales si los necesitas).
+- Estar en la carpeta raíz del repo (donde está el script `deploy_railway.ps1` y la carpeta `backend`).
+
+Comprobar versión CLI
+---------------------
+```powershell
+railway --version
+```
+
+Hacer login (si no estás logueado)
+----------------------------------
+```powershell
+railway login
+```
+
+Actualizar tu repo y asegurarte de estar en la rama correcta
+------------------------------------------------------------
+```powershell
+git checkout main
+git pull origin main
+```
+
+(Opcional) Ejecutar script local de preparación (si existe)
+----------------------------------------------------------
+```powershell
+# Si tienes un script para preparar el repo antes del deploy
+.\deploy_railway.ps1
+```
+
+Linkear el proyecto con Railway (interactivo)
+---------------------------------------------
+Este comando iniciará un diálogo donde seleccionas Workspace → Project → Environment → Service.
+```powershell
+railway link
+```
+
+Linkear no-interactivo (si conoces projectId y service)
+-------------------------------------------------------
+Sustituye <PROJECT_ID> y <SERVICE_NAME> por los valores correctos.
+```powershell
+railway link --project <PROJECT_ID> --environment production --service <SERVICE_NAME>
+```
+Ejemplo (PowerShell):
+```powershell
+railway link --project sala-chat-backend --environment production --service sala-chat-backend
+```
+
+Subir y desplegar (deploy)
+--------------------------
+```powershell
+railway up
+```
+Nota: en PowerShell evita usar `&&` para encadenar; ejecuta los comandos uno por uno o separa con `;`.
+
+Ver logs en tiempo real
+-----------------------
+```powershell
+railway logs --tail
+```
+
+Comprobar /health del servicio (una vez desplegado)
+---------------------------------------------------
+Sustituye <RAILWAY_URL> por la URL pública de tu servicio (ej.: https://mi-backend.up.railway.app).
+```powershell
+Invoke-RestMethod -Uri 'https://<RAILWAY_URL>/health' -Method Get
+```
+
+Configurar variables de entorno (VAPID, JWT, NODE_ENV, PORT)
+-----------------------------------------------------------
+Puedes hacerlo desde la UI de Railway (Project → Environments → Variables) o por CLI:
+```powershell
+# Establecer VAPID keys (ejemplo)
+railway variables set VAPID_PUBLIC "<tu_vapid_public>" --environment production
+railway variables set VAPID_PRIVATE "<tu_vapid_private>" --environment production
+# Otros secretos
+railway variables set JWT_SECRET "<tu_jwt_secret>" --environment production
+railway variables set NODE_ENV production --environment production
+# Si quieres exponer un PORT distinto a 8080
+railway variables set PORT 8080 --environment production
+```
+Si cambias variables en la UI o por CLI, redeploy o reinicia el servicio:
+```powershell
+railway redeploy
+# o
+railway up
+```
+
+Redeploy vs Deploy - explicación corta
+----------------------------------
+`railway up` sube y despliega el código y recursos desde el directorio actual al servicio enlazado. Se usa cuando has cambiado código o configuración local y quieres una nueva versión.
+
+`railway redeploy` vuelve a redeployar la última versión que ya fue subida (re-run) — útil cuando cambias solo variables de entorno desde la UI o quieres reiniciar el servicio sin volver a subir el código. No sube nuevos archivos desde tu directorio.
+
+Cuándo usar cada uno:
+- Usa `railway up` cuando hayas hecho cambios en el repo (código, dependencias, scripts) y quieres subir esos cambios.
+- Usa `railway redeploy` cuando solo hayas cambiado variables/secretos desde la dashboard o quieras reiniciar la última imagen desplegada.
+
+Generar claves VAPID (si las necesitas)
+---------------------------------------
+Puedes generarlas localmente con Node (instala web-push) o dejar que el servidor las genere en dev (no recomendado para prod).
+```powershell
+node -e "const webpush=require('web-push');console.log(JSON.stringify(webpush.generateVAPIDKeys(),null,2))"
+```
+Copia `publicKey` y `privateKey` y pégalos en las variables `VAPID_PUBLIC` y `VAPID_PRIVATE`.
+
+Comprobaciones y debug
+----------------------
+- Verifica que el servidor imprime "Servidor corriendo en puerto" en los logs.
+- Revisa errores comunes en logs (dependencias, permisos, rate-limit warnings).
+- Si el service worker / PWA requiere cambios en `web/`, reconstruye y sube el `build/web` al hosting estático (Netlify, etc.). Railway no sirve directamente la carpeta `build/web` para PWA en producción a menos que tú lo configures para servir archivos estáticos.
+
+Ejemplo: flujo completo (PowerShell)
+-----------------------------------
+```powershell
+# 1) Actualizar repo
+git checkout main; git pull origin main
+
+# 2) Login en Railway (solo si no has logueado)
+railway login
+
+# 3) Linkear (interactivo) o usar la versión no interactiva
+railway link   # seguido de seleccionar workspace/project/service
+# o no interactivo si conoces project/service
+# railway link --project sala-chat-backend --environment production --service sala-chat-backend
+
+# 4) Deploy
+railway up
+
+# 5) Ver logs
+railway logs --tail
+
+# 6) Verificar health
+Invoke-RestMethod -Uri 'https://<RAILWAY_URL>/health' -Method Get
+```
+
+Notas finales y recomendaciones
+-------------------------------
+- Asegúrate de que `backend/package.json` tenga el script `start` correcto (ej. `node server.js`).
+- Revisa variables secretas (VAPID_PRIVATE no debe exponerse públicamente en git).
+- Para PWA (frontend web) sigue desplegando `build/web` en Netlify o similar; Railway está ejecutando el backend y puede servir APIs, pero la PWA estérica/registro SW se sirve desde un hosting estático.
+- Si el servicio usa `trust proxy` en Express y estás detrás de un proxy (Railway), revisa la configuración de `express-rate-limit` para evitar el warning de seguridad.
+
+Si quieres, puedo:
+- Ejecutar `railway up` aquí y monitorear logs hasta confirmar que el servidor empieza (necesito confirmar y lo ejecutaré). 
+- O bien, si prefieres, te dejo estos pasos y me confirmas cuando los corras para ayudarte a interpretar logs.
+
+Fin del documento.
