@@ -7,6 +7,7 @@ class HeaderWidget extends StatelessWidget {
   final String? userAvatar;
   final String? userName;
   final int suscritos; // nuevo placeholder
+  final VoidCallback? onNotificationTap; // nuevo
 
   const HeaderWidget({
     super.key,
@@ -16,6 +17,7 @@ class HeaderWidget extends StatelessWidget {
     this.userAvatar,
     this.userName,
     this.suscritos = 0,
+    this.onNotificationTap,
   });
 
   @override
@@ -200,8 +202,25 @@ class HeaderWidget extends StatelessWidget {
                   ),
                 ),
                 
-                // Espacio para equilibrio visual
-                const SizedBox(width: 50),
+                // Espacio para equilibrio visual o botón de notificaciones
+                if (onNotificationTap != null)
+                  GestureDetector(
+                    onTap: onNotificationTap,
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.notifications,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                  )
+                else
+                  const SizedBox(width: 50),
               ],
             ),
           ),

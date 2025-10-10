@@ -1,0 +1,25 @@
+Pruebas locales Telegram (sala_chat backend)
+
+1) Configurar token en entorno (PowerShell):
+$env:TELEGRAM_BOT_TOKEN = '8483097946:AAGKnqi_llQ52SahHwzCiSFjgzAq4EKu8rc'
+
+2) Ejecutar backend local (desde la raíz del repo):
+cd backend
+npm ci
+node server.js
+
+3) Registrar chat_id (desde cliente o usar curl/PowerShell):
+# PowerShell example:
+$body = @{ userId = 'user_1'; chatId = '123456789' } | ConvertTo-Json
+Invoke-RestMethod -Uri 'http://localhost:3001/api/telegram/register' -Method Post -Body $body -ContentType 'application/json'
+
+4) Enviar notificación de prueba:
+$body = @{ userId = 'user_1'; text = 'Prueba desde backend' } | ConvertTo-Json
+Invoke-RestMethod -Uri 'http://localhost:3001/api/telegram/notify' -Method Post -Body $body -ContentType 'application/json'
+
+5) Listar registros:
+Invoke-RestMethod -Uri 'http://localhost:3001/api/telegram/list'
+
+Notas:
+- Asegúrate que el bot de Telegram ha sido iniciado por el usuario (el chat_id puede obtenerse desde getUpdates o desde la herramienta BotFather test).
+- En producción guarda TELEGRAM_BOT_TOKEN en las variables de entorno del host (Railway) y no comites el token.

@@ -14,6 +14,8 @@ const { handleSocketConnection } = require('./src/controllers/socketController')
 const db = require('./src/config/memory_db');
 // Nuevo backend persistente SQLite para media y mensajes
 const sqlite = require('./src/config/sqlite_db');
+// Poller de Telegram (auto-registro de chat_id)
+const telegramPoller = require('./src/services/telegramPoller');
 
 const app = express();
 // Cuando la app corre detrás de un proxy (Railway, Heroku, etc.)
@@ -126,6 +128,8 @@ app.use('/api/media', mediaRoutes);
 app.use('/api/messages', require('./src/routes/messages'));
 // Rutas para Web Push (PWA)
 app.use('/api/push', require('./src/routes/push'));
+// Rutas para integración con Telegram (notificaciones alternativas)
+app.use('/api/telegram', require('./src/routes/telegram'));
 
 // Ruta de health check
 app.get('/health', (req, res) => {
@@ -165,6 +169,14 @@ sqlite.ensureInit().then(() => {
     console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
     console.log(`🔗 Socket.IO habilitado para chat en tiempo real`);
     console.log(`🌍 Entorno: ${process.env.NODE_ENV || 'development'}`);
+    // Iniciar poller de Telegram si hay token
+    if (process.env.TELEGRAM_BOT_TOKEN) {
+      try {
+        telegramPoller.start(5000);
+      } catch (e) {
+        console.warn('No se pudo iniciar telegramPoller:', e.message || e);
+      }
+    }
   });
 }).catch(error => {
   console.error('❌ Error inicializando SQLite:', error);

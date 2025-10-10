@@ -81,6 +81,16 @@ const initDb = async () => {
     );
 
     CREATE INDEX IF NOT EXISTS idx_push_user ON push_subscriptions(user_id);
+
+    -- Tabla para registrar chat_id de Telegram por userId
+    CREATE TABLE IF NOT EXISTS telegram_registrations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT UNIQUE,
+      chat_id TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_telegram_user ON telegram_registrations(user_id);
   `);
   
   // Guardar cambios inmediatamente
@@ -249,6 +259,39 @@ module.exports = {
       console.warn('⚠️ insertPushSubscription error:', e.message);
       return null;
     }
+  },
+
+  // === Telegram registrations ===
+  async insertTelegramRegistration(userId, chatId) {
+    const database = await initDb();
+    try {
+      const stmt = database.prepare(`INSERT OR REPLACE INTO telegram_registrations (user_id, chat_id) VALUES (?, ?)`);
+      stmt.run([userId, chatId]);
+      saveDb();
+      const res = database.exec('SELECT * FROM telegram_registrations WHERE user_id = ?', [userId]);
+      return res.length > 0 && res[0].values.length > 0 ? this._rowToObject(res[0], 0) : null;
+    } catch (e) {
+      console.warn('⚠️ insertTelegramRegistration error:', e.message);
+      return null;
+    }
+  },
+
+  async getTelegramChatIdByUser(userId) {
+    const database = await initDb();
+    const res = database.exec('SELECT chat_id FROM telegram_registrations WHERE user_id = ?', [userId]);
+    if (res.length === 0 || res[0].values.length === 0) return null;
+    return res[0].values[0][0];
+  },
+
+  async listTelegramRegistrations() {
+    const database = await initDb();
+    const res = database.exec('SELECT user_id, chat_id, created_at FROM telegram_registrations ORDER BY created_at DESC');
+    if (res.length === 0) return [];
+    const rows = [];
+    for (let i = 0; i < res[0].values.length; i++) {
+      rows.push(this._rowToObject(res[0], i));
+    }
+    return rows;
   },
 
   async removePushSubscription(endpoint) {

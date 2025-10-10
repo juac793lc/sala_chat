@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
 import '../models/tipo_reporte.dart';
 import '../services/socket_service.dart';
+import '../services/auth_service.dart';
+import '../config/endpoints.dart';
 
 class MapaWidget extends StatefulWidget {
   final VoidCallback onClose;
@@ -34,6 +38,7 @@ class _MapaWidgetState extends State<MapaWidget> {
   void initState() {
     super.initState();
     _socketService = SocketService.instance;
+    _loadCurrentUser();
     // Obtener ubicación automáticamente al abrir el mapa (solo para centrar)
     _getCurrentLocationSilent();
     // Configurar listeners para marcadores compartidos
@@ -170,7 +175,10 @@ class _MapaWidgetState extends State<MapaWidget> {
       width: markerSize,
       height: markerSize,
       child: GestureDetector(
-        onTap: () => _showSharedMarkerInfo(data, tipoInfo),
+        onTap: () {
+          try { _maybeNotifyTelegram(data); } catch (e) { debugPrint('notify err: $e'); }
+          _showSharedMarkerInfo(data, tipoInfo);
+        },
         child: Container(
           decoration: BoxDecoration(
             color: tipoInfo.color,
@@ -437,6 +445,81 @@ class _MapaWidgetState extends State<MapaWidget> {
     });
   }
 
+  // Cargar usuario actual (id) para usar en llamadas al backend
+  String? _currentUserId;
+  void _loadCurrentUser() async {
+    try {
+      final cached = AuthService.getCachedUser();
+      if (cached != null) {
+        _currentUserId = cached.id;
+        return;
+      }
+      final res = await AuthService.verifyToken();
+      if (res.success && res.user != null) {
+        _currentUserId = res.user!.id;
+      }
+    } catch (e) {
+      debugPrint('No se pudo cargar usuario actual: $e');
+    }
+  }
+
+  // Enviar notificación a Telegram cuando se clicka una estrella
+  void _maybeNotifyTelegram(Map<String, dynamic> data) {
+    final tipo = data['tipoReporte'];
+    if (tipo != 'interes' && tipo != 'policia') return; // solo estrellas/compat
+
+  final lat = data['latitude'];
+  final lon = data['longitude'];
+  final author = data['username'] ?? 'Usuario';
+  // Calcular distancia desde la posición actual ( _currentCenter siempre tiene un valor por diseño )
+  int distanceMeters = 0;
+  try {
+    final d = Geolocator.distanceBetween(_currentCenter.latitude, _currentCenter.longitude, lat, lon);
+    distanceMeters = d.round();
+  } catch (e) {
+    debugPrint('Error calculando distancia: $e');
+  }
+
+  // Construir mensaje con columnas e iconos
+  final text = _buildTelegramStarMessage(author, distanceMeters);
+  _sendTelegramNotify(text);
+  }
+
+  Future<void> _sendTelegramNotify(String text) async {
+    if (!mounted) return;
+    try {
+      final userId = _currentUserId;
+      if (userId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No hay usuario autenticado para notificar'), backgroundColor: Colors.orange),
+        );
+        return;
+      }
+
+      final uri = Uri.parse('${Endpoints.base}/api/telegram/notify');
+      final body = json.encode({'userId': userId, 'text': text});
+      final resp = await http.post(uri, headers: {'Content-Type': 'application/json'}, body: body).timeout(const Duration(seconds: 8));
+
+      if (resp.statusCode == 200) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Notificación enviada a Telegram'), backgroundColor: Colors.green),
+        );
+      } else {
+        debugPrint('Error notificando Telegram: ${resp.statusCode} ${resp.body}');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error enviando notificación'), backgroundColor: Colors.red),
+        );
+      }
+    } catch (e) {
+      debugPrint('Excepción notificando Telegram: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error enviando notificación (timeout o red)'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   // Función para eliminar marcador compartido
   void _removeSharedMarker(String markerId) {
     if (!mounted) return;
@@ -681,6 +764,25 @@ class _MapaWidgetState extends State<MapaWidget> {
         'longitude': position.longitude,
         'tipoReporte': _tipoSeleccionado!.toString().split('.').last,
       });
+
+      // Enviar notificación a Telegram si es estrella/interes
+      try {
+        if (_tipoSeleccionado == TipoReporte.interes) {
+          final author = 'Usuario';
+          int distanceMeters = 0;
+          try {
+            final d = Geolocator.distanceBetween(_currentCenter.latitude, _currentCenter.longitude, position.latitude, position.longitude);
+            distanceMeters = d.round();
+          } catch (e) {
+            debugPrint('Error calculando distancia al crear marcador: $e');
+          }
+
+          final text = _buildTelegramStarMessage(author, distanceMeters);
+          _sendTelegramNotify(text);
+        }
+      } catch (e) {
+        debugPrint('Error enviando telegram notify on create: $e');
+      }
       
       // Mostrar confirmación
       ScaffoldMessenger.of(context).showSnackBar(
@@ -700,6 +802,35 @@ class _MapaWidgetState extends State<MapaWidget> {
         ),
       );
     }
+  }
+
+  // Escapa caracteres HTML básicos para enviar con parse_mode=HTML
+  String _escapeHtml(String input) {
+    return input
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;');
+  }
+
+  // Clasifica el estado según la distancia (metros)
+  String _distanceStatus(int meters) {
+    if (meters <= 300) return 'Muito perto';
+    if (meters <= 500) return 'Perto';
+    if (meters >= 1000) return 'Longe';
+    return 'Moderado';
+  }
+
+  // Construye un mensaje HTML preformateado (monospace) con columnas para Telegram
+  String _buildTelegramStarMessage(String author, int distanceMeters) {
+    final safeAuthor = _escapeHtml(author);
+    final status = _distanceStatus(distanceMeters);
+
+    // Usamos <pre> para preservar espacios y columnas en Telegram (parse_mode=HTML)
+    return '⭐ Estrela ativa\n\n'
+        '<pre>👑  Estrela ativa   |  Reportado por: $safeAuthor\n'
+        '📏  Distância       |  ${distanceMeters} m\n'
+        '📍  Estado          |  $status\n'
+        '</pre>';
   }
 
   // Mostrar información del marcador

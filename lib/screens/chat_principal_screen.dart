@@ -498,6 +498,17 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
                 userName: _currentUserName,
                 userAvatar: _currentUserAvatar,
                 suscritos: _usuariosSuscritos,
+                onNotificationTap: _pushService != null ? () async {
+                  final key = await _pushService!.getVapidPublicKey();
+                  if (key != null) {
+                    final ok = await _pushService!.registerServiceWorkerAndSubscribe(key, null);
+                    if (ok) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Notificaciones activadas')));
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error activando notificaciones')));
+                    }
+                  }
+                } : null,
               ),
               // Indicador de carga inicial
               if (_cargandoInicial)

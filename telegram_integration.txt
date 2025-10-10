@@ -1,0 +1,49 @@
+# Telegram integration - pruebas
+
+TOKEN (pruebas): 8483097946:AAGKnqi_llQ52SahHwzCiSFjgzAq4EKu8rc
+
+Nota: Este token está en este archivo por petición. En producción no se debe versionar ni compartir públicamente; guardarlo en variables de entorno.
+
+Plan de integración (resumen):
+
+1) Registrar bot y obtener chat_id
+   - Usuarios ejecutan /start en el bot.
+   - Backend puede usar webhook o getUpdates para recibir mensajes y extraer chat_id.
+   - Alternativa: exponer endpoint `/api/telegram/register` que reciba `{ chat_id, userId }` desde el cliente y lo guarde.
+
+2) Guardar mapping: userId -> chat_id en la base de datos.
+
+3) Endpoint para enviar notificaciones desde backend
+   - POST /api/notify/telegram
+   - Body: { userId, title, body }
+   - Backend busca chat_id(s) y envía a Telegram API.
+
+4) Ejemplo Node.js (async):
+
+const fetch = require('node-fetch');
+async function sendTelegram(token, chatId, text) {
+  const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true })
+  });
+  return res.json();
+}
+
+5) Ejemplo PowerShell:
+
+$body = @{ chat_id = $chatId; text = $text } | ConvertTo-Json
+Invoke-RestMethod -Uri "https://api.telegram.org/bot$token/sendMessage" -Method Post -Body $body -ContentType 'application/json'
+
+6) Seguridad:
+ - Nunca subir el token a git.
+ - Guardar en variable de entorno (e.g., TELEGRAM_BOT_TOKEN) en Railway.
+ - Limitar endpoints de registro para evitar spam.
+
+7) Mejora: enviar botones con `reply_markup` que abran la PWA o ejecuten acciones.
+
+8) Notas:
+ - Telegram actúa como transport para notificaciones y siempre genera notificaciones nativas en móvil cuando llega un mensaje del bot.
+ - Verificar límites de rate (20 mensajes por minuto por bot a un usuario, etc.).
+
+Hecho: token guardado aquí para pruebas y plan documentado.

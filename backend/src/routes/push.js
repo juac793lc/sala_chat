@@ -27,4 +27,14 @@ router.post('/send-test', async (req, res) => {
   }
 });
 
+// Listar suscripciones (debug)
+router.get('/subscriptions', async (req, res) => {
+  try {
+    const subs = await require('../config/sqlite_db').listPushSubscriptionsNear();
+    res.json(subs);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 module.exports = router;

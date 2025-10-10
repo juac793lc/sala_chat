@@ -1,0 +1,8 @@
+QMEmulatorService
+  flutter iniciará
+    flutter run -d chrome --dart-define=API_BASE=http://localhost:3000
+
+
+bakend inici
+cd C:\Users\Lenovo\Desktop\sala_chat\backend; npm start
+

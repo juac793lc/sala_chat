@@ -36,4 +36,9 @@ final ws = Endpoints.socketUrl; // para conectar sockets
 - Si usas Railway y el servicio está detrás de HTTPS, asegúrate de usar la misma URL en `API_BASE` (https://...)
 - Si tu web está servida desde otra origin, activa CORS en el backend (ya configurado en este repo).
 
+7) Cambios recientes en UI y funcionalidades
+- Mapa: Los iconos de selección de tipo de reporte (policía, incendio, etc.) ahora están organizados en una columna flotante en la esquina izquierda con fondo semi-transparente, en lugar de una fila horizontal en la cabecera. Esto mejora la vista profesional y evita recortar el mapa.
+- Multimedia: Los contenedores de imágenes y videos ahora usan un 65% de la altura de pantalla para previews más grandes, con zoom interactivo en imágenes y BoxFit dinámico para mejor ajuste (fitWidth para panorámicas, contain para otras).
+- Notificaciones Push: Corregidas notificaciones duplicadas; ahora solo se envían para marcadores tipo 'estrella' (interes), con emoji ⭐ en el título. Deduplicación por clave de cliente (p256dh) y endpoint.
+
 Si quieres, puedo añadir un script `run_dev.ps1` que lance el backend local y el comando `flutter run` con tus flags preferidos.

@@ -43,6 +43,14 @@ railway open
 # O buscar la URL en el dashboard y llamar al health endpoint:
 # curl -i https://<tu-servicio>.up.railway.app/health
 
+9) Comandos rápidos para redeploy y build
+
+- Redeploy backend en Railway (desde carpeta raíz del proyecto):
+cd backend; railway up
+
+- Build Flutter web apuntando a Railway (desde carpeta raíz del proyecto):
+flutter build web --dart-define=USE_LOCAL=false --dart-define=API_BASE="https://sala-chat-backend-production.up.railway.app"
+
 Notas y soluciones rápidas
 - Si Railpack no encuentra start command: asegúrate de tener `Procfile` con la línea `web: npm --prefix backend start` o que `package.json` tenga script "start" y/o `main` apuntando a `backend/server.js`.
 
