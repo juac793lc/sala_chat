@@ -32,7 +32,8 @@ class SalaChatApp extends StatelessWidget {
           useMaterial3: true,
           fontFamily: 'System',
         ),
-        home: const AuthChecker(),
+  // Abrir directamente el chat/mapa sin pantalla de login
+  home: const ChatPrincipalScreen(roomId: 'general'),
         routes: {
           '/welcome': (context) => const WelcomeScreen(),
           '/chat': (context) => const ChatPrincipalScreen(roomId: 'general'),

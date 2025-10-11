@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+// 'kIsWeb' not needed in this widget file
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
@@ -485,9 +487,29 @@ class _MapaWidgetState extends State<MapaWidget> {
   _sendTelegramNotify(text);
   }
 
-  Future<void> _sendTelegramNotify(String text) async {
+  Future<void> _sendTelegramNotify(String text, {bool broadcast = true}) async {
     if (!mounted) return;
     try {
+      // Si broadcast=true, enviamos al grupo configurado en el backend.
+      if (broadcast) {
+        final uri = Uri.parse('${Endpoints.base}/api/telegram/broadcast');
+        final body = json.encode({'text': text});
+        final resp = await http.post(uri, headers: {'Content-Type': 'application/json'}, body: body).timeout(const Duration(seconds: 8));
+
+        if (resp.statusCode == 200) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Notificación enviada a Telegram (grupo)'), backgroundColor: Colors.green),
+          );
+        } else {
+          debugPrint('Error notificando Telegram (broadcast): ${resp.statusCode} ${resp.body}');
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Error enviando notificación'), backgroundColor: Colors.red),
+          );
+        }
+        return;
+      }
+
+      // Modo user-specific (compatibilidad): intentar enviar por userId
       final userId = _currentUserId;
       if (userId == null) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -499,7 +521,6 @@ class _MapaWidgetState extends State<MapaWidget> {
       final uri = Uri.parse('${Endpoints.base}/api/telegram/notify');
       final body = json.encode({'userId': userId, 'text': text});
       final resp = await http.post(uri, headers: {'Content-Type': 'application/json'}, body: body).timeout(const Duration(seconds: 8));
-
       if (resp.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Notificación enviada a Telegram'), backgroundColor: Colors.green),
@@ -804,33 +825,14 @@ class _MapaWidgetState extends State<MapaWidget> {
     }
   }
 
-  // Escapa caracteres HTML básicos para enviar con parse_mode=HTML
-  String _escapeHtml(String input) {
-    return input
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;');
-  }
-
-  // Clasifica el estado según la distancia (metros)
-  String _distanceStatus(int meters) {
-    if (meters <= 300) return 'Muito perto';
-    if (meters <= 500) return 'Perto';
-    if (meters >= 1000) return 'Longe';
-    return 'Moderado';
-  }
+  // (helpers removed: escapeHtml and distanceStatus were unused after message simplification)
 
   // Construye un mensaje HTML preformateado (monospace) con columnas para Telegram
   String _buildTelegramStarMessage(String author, int distanceMeters) {
-    final safeAuthor = _escapeHtml(author);
-    final status = _distanceStatus(distanceMeters);
-
-    // Usamos <pre> para preservar espacios y columnas en Telegram (parse_mode=HTML)
-    return '⭐ Estrela ativa\n\n'
-        '<pre>👑  Estrela ativa   |  Reportado por: $safeAuthor\n'
-        '📏  Distância       |  ${distanceMeters} m\n'
-        '📍  Estado          |  $status\n'
-        '</pre>';
+  // Mensaje general al grupo con alarma
+  return '🚨 <b>ALERTA</b>\n\n'
+    '⭐ <b>Estrela ativa</b>\n'
+    'Por favor, veja o mapa.';
   }
 
   // Mostrar información del marcador
@@ -952,14 +954,14 @@ class _MapaWidgetState extends State<MapaWidget> {
             top: 12,
             left: 8,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.28),
-                borderRadius: BorderRadius.circular(14),
+                color: Colors.black.withOpacity(0.22),
+                borderRadius: BorderRadius.circular(12),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withOpacity(0.12),
-                    blurRadius: 8,
+                    blurRadius: 6,
                     offset: const Offset(0, 2),
                   ),
                 ],
@@ -967,25 +969,25 @@ class _MapaWidgetState extends State<MapaWidget> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Small title row
+                  // Title row compact
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: const [
-                      Icon(Icons.map, color: Colors.white, size: 18),
-                      SizedBox(width: 6),
+                      Icon(Icons.map, color: Colors.white, size: 16),
+                      SizedBox(width: 4),
                       Text(
                         'Mapa',
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: 14,
+                          fontSize: 13,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
 
-                  // Vertical list of report-type icons (floating)
+                  // Smaller vertical list of report-type icons
                   Column(
                     mainAxisSize: MainAxisSize.min,
                     children: List.generate(TiposReporte.todos.length, (index) {
@@ -993,7 +995,7 @@ class _MapaWidgetState extends State<MapaWidget> {
                       final isSelected = _tipoSeleccionado == tipoInfo.tipo;
 
                       return Container(
-                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        margin: const EdgeInsets.symmetric(vertical: 3),
                         child: GestureDetector(
                           onTap: () {
                             setState(() {
@@ -1001,8 +1003,8 @@ class _MapaWidgetState extends State<MapaWidget> {
                             });
                           },
                           child: Container(
-                            width: 44,
-                            height: 44,
+                            width: 36,
+                            height: 36,
                             decoration: BoxDecoration(
                               color: isSelected ? tipoInfo.color : Colors.white.withOpacity(0.06),
                               shape: BoxShape.circle,
@@ -1011,7 +1013,7 @@ class _MapaWidgetState extends State<MapaWidget> {
                             child: Icon(
                               tipoInfo.icono,
                               color: isSelected ? Colors.white : tipoInfo.color,
-                              size: 18,
+                              size: 14,
                             ),
                           ),
                         ),
@@ -1019,35 +1021,59 @@ class _MapaWidgetState extends State<MapaWidget> {
                     }),
                   ),
 
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
+                  // Compact Telegram register button
+                  if (_currentUserId != null)
+                    TextButton.icon(
+                      onPressed: () {
+                        final botUsername = 'notificamapa_bot';
+                        final startParam = Uri.encodeComponent(_currentUserId!);
+                        final url = 'https://t.me/$botUsername?start=$startParam';
+                        showDialog(context: context, builder: (_) => AlertDialog(
+                          title: const Text('Registrar en Telegram'),
+                          content: Text('Abra este enlace en Telegram para completar el registro:\n\n$url'),
+                          actions: [
+                            TextButton(onPressed: () { Navigator.pop(context); }, child: const Text('Cerrar')),
+                            TextButton(onPressed: () {
+                              Navigator.pop(context);
+                              Clipboard.setData(ClipboardData(text: url));
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enlace copiado al portapapeles')));
+                            }, child: const Text('Copiar enlace')),
+                          ],
+                        ));
+                      },
+                      icon: const Icon(Icons.telegram, color: Colors.white, size: 16),
+                      label: const Text('Telegram', style: TextStyle(color: Colors.white, fontSize: 12)),
+                      style: TextButton.styleFrom(backgroundColor: Colors.blueAccent, padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6)),
+                    ),
 
-                  // Action buttons (ubicación y cerrar)
+                  // Action buttons (ubicación y cerrar) compact
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       GestureDetector(
                         onTap: _getCurrentLocation,
                         child: Container(
-                          padding: const EdgeInsets.all(8),
+                          padding: const EdgeInsets.all(6),
                           decoration: BoxDecoration(
                             color: Colors.green.withOpacity(0.95),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: _isLoading
-                              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                              : const Icon(Icons.my_location, color: Colors.white, size: 16),
+                              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                              : const Icon(Icons.my_location, color: Colors.white, size: 14),
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 6),
                       GestureDetector(
                         onTap: widget.onClose,
                         child: Container(
-                          padding: const EdgeInsets.all(8),
+                          padding: const EdgeInsets.all(6),
                           decoration: BoxDecoration(
                             color: Colors.red.withOpacity(0.95),
                             borderRadius: BorderRadius.circular(8),
                           ),
-                          child: const Icon(Icons.close, color: Colors.white, size: 16),
+                          child: const Icon(Icons.close, color: Colors.white, size: 14),
                         ),
                       ),
                     ],

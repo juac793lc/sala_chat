@@ -3,6 +3,28 @@ const router = express.Router();
 const telegramStore = require('../config/telegram_store');
 const telegramService = require('../services/telegramService');
 
+// Helper: resolver chat id de fallback (env var -> archivo). Preferir IDs negativos (grupos).
+async function resolveFallbackChatId() {
+  let chatId = process.env.TELEGRAM_FALLBACK_CHAT_ID || null;
+  if (chatId) return chatId;
+  try {
+    const p = require('path').join(__dirname, '..', '..', 'telegram_integration.txt');
+    const fs = require('fs');
+    if (fs.existsSync(p)) {
+      const content = fs.readFileSync(p, 'utf8').trim();
+      // 1) intentar encontrar IDs de grupo (negativos)
+      const neg = content.match(/-\d+/);
+      if (neg) return neg[0];
+      // 2) buscar cualquier número largo que podría ser chat id (tomar el último número en el archivo)
+      const all = content.match(/\d+/g);
+      if (all && all.length) return all[all.length - 1];
+    }
+  } catch (e) {
+    console.error('resolveFallbackChatId read error', e);
+  }
+  return null;
+}
+
 // Registrar chat_id para userId (body: { userId, chatId })
 router.post('/register', (req, res) => {
   try {
@@ -21,40 +43,47 @@ router.post('/register', (req, res) => {
   }
 });
 
-// Endpoint para enviar notificación a un usuario (body: { userId, text })
+// Endpoint legacy /notify: por compatibilidad, ahora fuerza envío al grupo/fallback
+// (body: { userId?, text }) — el userId se ignora y el mensaje se envía siempre al chat de fallback
 router.post('/notify', async (req, res) => {
   try {
-    const { userId, text } = req.body;
-    if (!userId || !text) return res.status(400).json({ error: 'userId y text son requeridos' });
-    let chatId = await telegramStore.getByUser(userId);
-    let usedFallback = false;
-    if (!chatId) {
-      // intentar fallback desde env
-      chatId = process.env.TELEGRAM_FALLBACK_CHAT_ID || null;
-      // si no hay en env, intentar leer archivo de integracion
-      if (!chatId) {
-        try {
-          const p = require('path').join(__dirname, '..', '..', 'telegram_integration.txt');
-          const fs = require('fs');
-          if (fs.existsSync(p)) {
-            const content = fs.readFileSync(p, 'utf8').trim();
-            // si el archivo contiene solo numeros (chat id) usarlo
-            if (/^\d+$/.test(content)) chatId = content;
-          }
-        } catch (e) {
-          console.error('read fallback chat id error', e);
-        }
-      }
-      if (chatId) usedFallback = true;
-    }
+    const { text } = req.body;
+    if (!text) return res.status(400).json({ error: 'text es requerido' });
 
-    if (!chatId) return res.status(404).json({ error: 'chat_id no encontrado para el userId' });
+    // Resolver chatId de fallback (env var -> archivo). Preferimos ids negativos (grupos)
+    const chatId = await resolveFallbackChatId();
+    if (!chatId) return res.status(500).json({ error: 'No hay chat_id de fallback configurado' });
 
-    if (usedFallback) console.log(`telegram notify: using fallback chatId=${chatId} for userId=${userId}`);
+    console.log(`telegram notify: forced to fallback chatId=${chatId}`);
     const result = await telegramService.sendMessage(chatId, text);
-    return res.json({ ok: true, result, usedFallback });
+    // Loguear respuesta de Telegram para debugging
+    try {
+      console.log('telegram sendMessage result:', JSON.stringify(result));
+      if (result && result.ok === false) console.warn('Telegram API error:', result.description || result);
+    } catch (e) { /* ignore stringify errors */ }
+    return res.json({ ok: true, result, forcedFallback: true });
   } catch (e) {
     console.error('telegram notify error', e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+// Endpoint para enviar un broadcast solo al grupo/fallback (body: { text })
+router.post('/broadcast', async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text) return res.status(400).json({ error: 'text es requerido' });
+
+    // Resolver chat id de fallback usando helper (prioriza IDs de grupos negativos)
+    const chatId = await resolveFallbackChatId();
+    if (!chatId) return res.status(500).json({ error: 'No hay chat_id de fallback configurado' });
+
+    console.log(`telegram broadcast: resolved fallback chatId=${chatId}`);
+    const result = await telegramService.sendMessage(chatId, text);
+    try { console.log('telegram sendMessage result:', JSON.stringify(result)); } catch (e) {}
+    return res.json({ ok: true, result });
+  } catch (e) {
+    console.error('telegram broadcast error', e);
     return res.status(500).json({ error: e.message });
   }
 });

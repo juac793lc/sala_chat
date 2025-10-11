@@ -13,3 +13,13 @@ cd C:\Users\Lenovo\Desktop\sala_chat\backend; npm start
 
 // listar registrado
 Invoke-RestMethod -Uri 'http://localhost:3000/api/telegram/list' -Method GET
+
+// --- comandos usados para commit y push (añadidos automáticamente)
+# Añadir todos los cambios
+git add .
+
+# Crear commit con mensaje
+git commit -m "feat: notificaciones Telegram funcionando con fallback y formato HTML mejorado. Documentación y comandos de prueba incluidos."
+
+# Subir a GitHub (origen 'origin', rama 'main')
+git push origin main

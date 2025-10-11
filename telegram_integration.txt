@@ -1,6 +1,11 @@
 # Telegram integration - pruebas
 
-TOKEN (pruebas): 8483097946:AAGKnqi_llQ52SahHwzCiSFjgzAq4EKu8rc
+# TELEGRAM_BOT_TOKEN for local tests: set this in your environment instead of committing it.
+# Example (PowerShell):
+# $env:TELEGRAM_BOT_TOKEN = 'REPLACE_WITH_YOUR_TOKEN'
+
+// id chat del grupo estimado: -4982500040
+
 
 Nota: Este token está en este archivo por petición. En producción no se debe versionar ni compartir públicamente; guardarlo en variables de entorno.
 
