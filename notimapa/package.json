@@ -1,0 +1,8 @@
+{
+  "name": "sala_chat_root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node ./sala_chat/backend/server.js"
+  }
+}
