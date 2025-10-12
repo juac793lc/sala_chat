@@ -546,17 +546,8 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
                       ),
               ),
               
-              // Widget Mapa que se despliega desde abajo
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOut,
-                // Subir a 90% de la pantalla para que el mapa se vea más grande
-                height: _mostrarBliz ? MediaQuery.of(context).size.height * 0.9 : 0,
-                // Mantener el widget montado (altura 0 cuando oculto) para preservar estado y marcadores
-                child: MapaWidget(
-                  onClose: _cerrarBliz,
-                ),
-              ),
+              // Nota: el mapa se muestra como overlay Positioned abajo (más abajo en el árbol)
+              // para evitar que su altura afecte el layout principal y provoque overflows.
             ],
           ),
           
