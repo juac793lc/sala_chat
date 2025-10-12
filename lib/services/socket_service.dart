@@ -11,6 +11,7 @@ class SocketService {
 
   io.Socket? _socket;
   bool _isConnected = false;
+  final List<Map<String, dynamic>> _pendingEmits = [];
   final Set<String> _joinedRooms = {}; // evitar joins duplicados
   final Set<String> _pendingJoin = {}; // joins solicitados esperando confirmación
   bool _eventsRegistrados = false; // asegura que _setupChatEvents solo corre una vez
@@ -45,21 +46,20 @@ class SocketService {
     try {
       final token = await AuthService.getToken();
       if (token == null) {
-        debugPrint('❌ No hay token para conectar');
-        return false;
+        debugPrint('⚠️ No hay token para conectar: estableciendo conexión anónima');
+      } else {
+        debugPrint('🔑 Conectando con token: ${token.substring(0, 20)}...');
       }
 
-      debugPrint('🔑 Conectando con token: ${token.substring(0, 20)}...');
-
       // Configurar socket (solo crear si no existe)
-      _socket = io.io(
-        Endpoints.base,
-        io.OptionBuilder()
-            .setTransports(['websocket', 'polling'])
-            .disableAutoConnect() // desactivar auto connect para controlar manualmente
-            .setAuth({'token': token})
-            .build(),
-      );
+  _socket = io.io(
+    Endpoints.base,
+    io.OptionBuilder()
+    .setTransports(['websocket', 'polling'])
+    .disableAutoConnect() // desactivar auto connect para controlar manualmente
+    .setAuth(token != null ? {'token': token} : {})
+    .build(),
+  );
 
       // Evitar registrar eventos múltiples
       if (!_eventsRegistrados) {
@@ -67,6 +67,22 @@ class SocketService {
           _isConnected = true;
             debugPrint('✅ Conectado al servidor de chat');
             _notifyCallbacks('connected', null);
+            // flush pending emits
+            if (_pendingEmits.isNotEmpty) {
+              debugPrint('🔁 Enviando ${_pendingEmits.length} eventos pendientes');
+              for (final item in List<Map<String, dynamic>>.from(_pendingEmits)) {
+                try {
+                  final ev = item['event'] as String?;
+                  final data = item['data'];
+                  if (ev != null) {
+                    _socket!.emit(ev, data);
+                  }
+                } catch (e) {
+                  debugPrint('⚠️ Error reenviando evento pendiente: $e');
+                }
+              }
+              _pendingEmits.clear();
+            }
         });
 
         // Debug global: log de cualquier evento recibido (excepto ping/pong internos)
@@ -224,6 +240,15 @@ class SocketService {
       _notifyCallbacks('map_notification', data);
     });
 
+    // Eventos de mapa: marcadores compartidos (incluye actualizaciones de contadores)
+    for (final ev in ['marker_added','marker_confirmed','marker_removed','existing_markers','marker_auto_removed','marker_updated']) {
+      _socket!.off(ev);
+      _socket!.on(ev, (data) {
+        debugPrint('🗺️ Evento mapa recibido: $ev');
+        _notifyCallbacks(ev, data);
+      });
+    }
+
     // Eventos de contenido (legacy)
     _socket!.on('nuevo_contenido', (data) => _notifyCallbacks('nuevo_contenido', data));
     _socket!.on('historial_contenido', (data) => _notifyCallbacks('historial_contenido', data));
@@ -376,7 +401,11 @@ class SocketService {
 
   // Método público para emitir eventos personalizados
   void emit(String event, dynamic data) {
-    if (!_isConnected || _socket == null) return;
+    if (!_isConnected || _socket == null) {
+      debugPrint('⏳ No conectado - encolando evento: $event');
+      _pendingEmits.add({'event': event, 'data': data});
+      return;
+    }
     _socket!.emit(event, data);
   }
 }

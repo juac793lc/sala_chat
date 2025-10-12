@@ -93,7 +93,7 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
   void _enviarTexto() {
     if (_controller.text.trim().isEmpty) return;
     if (!_roomReady) {
-      debugPrint('⏳ Sala aún no confirmada, reintentando...');
+      debugPrint('\u23f3 Sala aún no confirmada, reintentando...');
       // Reintento simple: esperar un corto delay y reintentar una sola vez
       Future.delayed(const Duration(milliseconds: 300), () {
         if (_roomReady) {
@@ -133,7 +133,7 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
       type: 'text',
     );
     
-    debugPrint('📤 Mensaje enviado al servidor: $contenidoTexto');
+    debugPrint('\ud83d\udce4 Mensaje enviado al servidor: $contenidoTexto');
   }
 
   Future<void> _grabarAudio() async {
@@ -148,7 +148,7 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
 
   Future<void> _iniciarGrabacion() async {
     try {
-      debugPrint('🎤 Iniciando grabación...');
+      debugPrint('\ud83c\udfa4 Iniciando grabación...');
 
       if (kIsWeb) {
         // Usar grabador nativo web
@@ -159,11 +159,11 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
       } else {
         // Usar record package para móvil
         if (!await _audioRecorder.hasPermission()) {
-          debugPrint('❌ Sin permisos de micrófono');
+          debugPrint('\u274c Sin permisos de micrófono');
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('❌ Permiso de micrófono denegado'),
+                content: Text('\u274c Permiso de micrófono denegado'),
                 backgroundColor: Colors.red,
               ),
             );
@@ -186,12 +186,12 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
         _inicioGrabacion = DateTime.now();
       });
 
-      debugPrint('🟢 Grabación iniciada correctamente');
+      debugPrint('\ud83d\udfe2 Grabación iniciada correctamente');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('🎤 Grabando... Toca STOP para enviar'),
+            content: Text('\ud83c\udfa4 Grabando... Toca STOP para enviar'),
             backgroundColor: Colors.green,
             duration: Duration(seconds: 2),
           ),
@@ -199,14 +199,14 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
       }
 
     } catch (e) {
-      debugPrint('❌ Error al iniciar grabación: $e');
+      debugPrint('\u274c Error al iniciar grabación: $e');
       setState(() {
         _grabandoAudio = false;
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('❌ Error: $e'),
+            content: Text('\u274c Error: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -216,7 +216,7 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
 
   Future<void> _detenerGrabacion() async {
     try {
-      debugPrint('🔴 Deteniendo grabación...');
+      debugPrint('\ud83d\udd34 Deteniendo grabación...');
       
       final duracion = DateTime.now().difference(_inicioGrabacion);
       
@@ -244,7 +244,7 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
         }
       }
 
-      debugPrint('⏹️ Grabación detenida. Duración: ${duracion.inSeconds}s');
+      debugPrint('\u23f9\ufe0f Grabación detenida. Duración: ${duracion.inSeconds}s');
 
       if (audioData != null || fileId != null) {
         // Mostrar indicador de procesamiento
@@ -271,7 +271,7 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
             // Reproducir inmediatamente el blob local (efecto instantáneo)
             final localObjectUrl = html.Url.createObjectUrl(audioData);
             // tempPlaybackUrl ya no se usa, reproducimos directo via blob
-            debugPrint('🎧 Reproduciendo local antes de upload: $localObjectUrl');
+            debugPrint('\ud83c\udfa7 Reproduciendo local antes de upload: $localObjectUrl');
             // Insertar comentario temporal (estado pendiente) usando URL blob local
             _tempAudioCommentId = 'temp_${DateTime.now().millisecondsSinceEpoch}';
             final comentarioTemp = Comentario(
@@ -297,7 +297,7 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
               );
               finalUrl = uploadResult.url;
               final mediaId = uploadResult.mediaId;
-              debugPrint('☁️ (async) Reemplazando blob local por URL servidor (mediaId=$mediaId)');
+              debugPrint('\u2601\ufe0f (async) Reemplazando blob local por URL servidor (mediaId=$mediaId)');
               if (_tempAudioCommentId != null && mediaId != null) {
                 final comentarioFinal = Comentario(
                   id: _tempAudioCommentId!,
@@ -321,7 +321,7 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
                 });
               }
             } catch (e) {
-              debugPrint('❌ Upload async falló: $e');
+              debugPrint('\u274c Upload async falló: $e');
             }
           } else if (fileId != null) {
             final uploadResult = await UploadService.uploadAudio(
@@ -359,43 +359,43 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('✅ Audio enviado (${duracion.inSeconds}s)'),
+                content: Text('\u2705 Audio enviado (${duracion.inSeconds}s)'),
                 backgroundColor: Colors.green,
                 duration: const Duration(seconds: 2),
               ),
             );
           }
         } catch (uploadError) {
-          debugPrint('❌ Error procesando audio: $uploadError');
+          debugPrint('\u274c Error procesando audio: $uploadError');
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('❌ Error enviando audio: $uploadError'),
+                content: Text('\u274c Error enviando audio: $uploadError'),
                 backgroundColor: Colors.red,
               ),
             );
           }
         }
       } else {
-        debugPrint('❌ No se obtuvo audio');
+        debugPrint('\u274c No se obtuvo audio');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('❌ Error: No se pudo obtener el audio'),
+              content: Text('\u274c Error: No se pudo obtener el audio'),
               backgroundColor: Colors.red,
             ),
           );
         }
       }
     } catch (e) {
-      debugPrint('❌ Error al detener grabación: $e');
+      debugPrint('\u274c Error al detener grabación: $e');
       setState(() {
         _grabandoAudio = false;
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('❌ Error al finalizar: $e'),
+            content: Text('\u274c Error al finalizar: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -403,224 +403,16 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
     }
   }
 
-  @override
-  void dispose() {
-    // No desuscribimos listener simple (opcional) - podría guardarse ref para off
-    _controller.dispose();
-    _audioRecorder.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        child: widget.esAudio
-            ? _buildInputAudio()
-            : _buildInputTexto(),
-      ),
-    );
-  }
-
-  void _mostrarEmojis() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => Container(
-        height: 250,
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Emojis',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Expanded(
-              child: GridView.count(
-                crossAxisCount: 8,
-                children: [
-                  '😊', '😂', '❤️', '👍', '👎', '😮', '😢', '😡',
-                  '🎉', '🔥', '⚡', '💯', '🙌', '👏', '💪', '🤝',
-                  '🎈', '🎂', '🎁', '🌟', '⭐', '✨', '💖', '💕',
-                  '🚀', '🎯', '🏆', '🥇', '🎊', '🎭', '🎨', '🎵',
-                ].map((emoji) {
-                  return GestureDetector(
-                    onTap: () {
-                      _controller.text += emoji;
-                      Navigator.pop(context);
-                    },
-                    child: Container(
-                      alignment: Alignment.center,
-                      child: Text(
-                        emoji,
-                        style: const TextStyle(fontSize: 24),
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _mostrarStickers() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => Container(
-        height: 300,
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Stickers',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Expanded(
-              child: GridView.count(
-                crossAxisCount: 4,
-                children: [
-                  '🐱', '🐶', '🦄', '🐻', '🐯', '🦊', '🐼', '🐨',
-                  '👑', '🎪', '🎈', '🎀', '🌈', '☀️', '🌙', '⭐',
-                ].map((sticker) {
-                  return GestureDetector(
-                    onTap: () {
-                      final comentario = Comentario(
-                        id: DateTime.now().millisecondsSinceEpoch.toString(),
-                        contenidoId: widget.contenidoId,
-                        autorId: '1',
-                        autorNombre: 'Tú',
-                        tipo: TipoComentario.texto,
-                        contenido: sticker,
-                        fechaCreacion: DateTime.now(),
-                      );
-                      widget.onComentarioAgregado(comentario);
-                      Navigator.pop(context);
-                    },
-                    child: Container(
-                      alignment: Alignment.center,
-                      margin: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade50,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey.shade200),
-                      ),
-                      child: Text(
-                        sticker,
-                        style: const TextStyle(fontSize: 40),
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInputTexto() {
-    return Row(
-      children: [
-        // Botón de emojis
-        GestureDetector(
-          onTap: _mostrarEmojis,
+      @override
+      Widget build(BuildContext context) {
+        // Mostrar la UI correspondiente según si la sala es de audio o texto.
+        return SafeArea(
           child: Padding(
-            padding: const EdgeInsets.only(right: 6),
-            child: Icon(
-              Icons.emoji_emotions_outlined,
-              color: Colors.grey.shade500,
-              size: 20,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: widget.esAudio ? _buildInputAudio() : _buildInputTexto(),
           ),
-        ),
-        
-        // Botón de stickers
-        GestureDetector(
-          onTap: _mostrarStickers,
-          child: Padding(
-            padding: const EdgeInsets.only(right: 10),
-            child: Icon(
-              Icons.face_retouching_natural,
-              color: Colors.grey.shade500,
-              size: 20,
-            ),
-          ),
-        ),
-        
-        // Campo de texto compacto
-        Expanded(
-          child: Container(
-            height: 36,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade100,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: Colors.grey.shade300, width: 0.5),
-            ),
-            child: TextField(
-              controller: _controller,
-              decoration: const InputDecoration(
-                hintText: 'Escribe un mensaje...',
-                hintStyle: TextStyle(color: Colors.grey, fontSize: 14),
-                border: InputBorder.none,
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              ),
-              style: const TextStyle(fontSize: 14),
-              maxLines: 1,
-              textInputAction: TextInputAction.send,
-              onSubmitted: (_) => _enviarComentario(),
-            ),
-          ),
-        ),
-        
-        const SizedBox(width: 8),
-        
-        // Botón de enviar compacto (deshabilitado si sala no lista)
-        GestureDetector(
-          onTap: _roomReady ? _enviarComentario : null,
-          child: Opacity(
-            opacity: _roomReady ? 1 : 0.4,
-            child: SizedBox(
-              width: 36,
-              height: 36,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Colors.blue,
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: const Icon(
-                  Icons.send,
-                  color: Colors.white,
-                  size: 16,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+        );
+      }
 
   Widget _buildInputAudio() {
     return SizedBox(
@@ -652,7 +444,7 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.blue.withValues(alpha: 0.1),
+                      color: Colors.blue.withOpacity(0.1),
                       blurRadius: 8,
                       offset: const Offset(0, 2),
                     ),
@@ -683,7 +475,7 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: (_grabandoAudio ? Colors.red : Colors.green).withValues(alpha: 0.4),
+                        color: (_grabandoAudio ? Colors.red : Colors.green).withOpacity(0.4),
                         blurRadius: 12,
                         spreadRadius: 2,
                         offset: const Offset(0, 3),
@@ -700,7 +492,7 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
                             width: 40,
                             height: 40,
                             decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.3),
+                              color: Colors.white.withOpacity(0.3),
                               borderRadius: BorderRadius.circular(20),
                             ),
                           ),
@@ -723,5 +515,11 @@ class _InputComentarioWidgetState extends State<InputComentarioWidget> {
         ],
       ),
     );
+  }
+
+  // Método mínimo para mantener compatibilidad con llamadas existentes.
+  // Como la UI ahora elimina la entrada de texto, devolvemos un widget vacío.
+  Widget _buildInputTexto() {
+    return const SizedBox.shrink();
   }
 }

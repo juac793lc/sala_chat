@@ -188,6 +188,7 @@ class UserModel {
   final String username;
   final String avatar;
   final bool isOnline;
+  final bool isAdmin;
   final DateTime lastSeen;
 
   UserModel({
@@ -195,6 +196,7 @@ class UserModel {
     required this.username,
     required this.avatar,
     required this.isOnline,
+    this.isAdmin = false,
     required this.lastSeen,
   });
 
@@ -204,6 +206,7 @@ class UserModel {
       username: json['username'] ?? 'Usuario',
       avatar: json['avatar'] ?? 'UN:#4ECDC4',
       isOnline: json['isOnline'] ?? false,
+      isAdmin: json['isAdmin'] ?? json['is_admin'] ?? false,
       lastSeen: json['lastSeen'] != null 
           ? DateTime.parse(json['lastSeen'])
           : DateTime.now(),
@@ -216,6 +219,7 @@ class UserModel {
       'username': username,
       'avatar': avatar,
       'isOnline': isOnline,
+      'isAdmin': isAdmin,
       'lastSeen': lastSeen.toIso8601String(),
     };
   }

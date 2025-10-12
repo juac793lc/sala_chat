@@ -5,7 +5,13 @@ servidor local
 // comando flutter
 flutter run -d chrome --dart-define=API_BASE=http://localhost:3000
 
+flutter notimapa inicia
+cd C:\Users\Lenovo\Desktop\notimapa\sala_chat
+flutter pub get
+flutter run -d chrome --dart-define=API_BASE=http://localhost:3001
 
+baken inicia
+ cd C:\Users\Lenovo\Desktop\notimapa\sala_chat\backend; npm install; npm run dev
 
 
 /// comando backend
