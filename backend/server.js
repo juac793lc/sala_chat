@@ -19,9 +19,10 @@ const telegramPoller = require('./src/services/telegramPoller');
 
 const app = express();
 // Cuando la app corre detrás de un proxy (Railway, Heroku, etc.)
-// permitir que Express confíe en cabeceras como X-Forwarded-For
-// para que middlewares como express-rate-limit funcionen correctamente.
-app.set('trust proxy', true);
+// indicar un valor concreto de 'trust proxy' (1) en vez de `true` para
+// evitar advertencias/errores de seguridad con express-rate-limit.
+// Ver: https://express-rate-limit.github.io/ERR_ERL_PERMISSIVE_TRUST_PROXY/
+app.set('trust proxy', 1);
 const server = http.createServer(app);
 
 // Configuración de Socket.IO con CORS
