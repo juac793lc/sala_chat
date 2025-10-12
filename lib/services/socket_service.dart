@@ -55,7 +55,9 @@ class SocketService {
   _socket = io.io(
     Endpoints.base,
     io.OptionBuilder()
-    .setTransports(['websocket', 'polling'])
+    // Forzar solo 'websocket' evita que el cliente intente long-polling
+    // (muchos proxies/edge layers bloquean o reescriben endpoints de polling).
+    .setTransports(['websocket'])
     .disableAutoConnect() // desactivar auto connect para controlar manualmente
     .setAuth(token != null ? {'token': token} : {})
     .build(),
