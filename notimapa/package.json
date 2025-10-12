@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "start": "node ./sala_chat/backend/server.js"
+    "start": "node ./sala_chat/backend/server.js",
+    "postinstall": "cd sala_chat/backend && npm ci --silent"
   }
 }
