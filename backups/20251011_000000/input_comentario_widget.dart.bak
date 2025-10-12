@@ -1,0 +1,216 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:record/record.dart';
+import 'dart:html' as html; // ignore: avoid_web_libraries_in_flutter
+import '../models/comentario.dart';
+import '../services/auth_service.dart';
+import '../services/platform_storage_service.dart';
+import '../services/upload_service.dart';
+import '../services/web_recorder_service.dart';
+import 'package:socket_io_client/socket_io_client.dart' as io;
+import '../services/socket_service.dart';
+
+class InputComentarioWidget extends StatefulWidget {
+  final String contenidoId;
+  final bool esAudio;
+  final Function(Comentario) onComentarioAgregado;
+
+  const InputComentarioWidget({
+    super.key,
+    required this.contenidoId,
+    required this.esAudio,
+    required this.onComentarioAgregado,
+  });
+
+  @override
+  State<InputComentarioWidget> createState() => _InputComentarioWidgetState();
+}
+
+class _InputComentarioWidgetState extends State<InputComentarioWidget> {
+  final TextEditingController _controller = TextEditingController();
+  bool _grabandoAudio = false;
+  final AudioRecorder _audioRecorder = AudioRecorder();
+
+  late DateTime _inicioGrabacion;
+  String _currentUserId = '1';
+  String _currentUserName = 'Usuario';
+  // Para manejo de comentario temporal de audio en web
+  String? _tempAudioCommentId;
+  io.Socket? _socket;
+  bool _roomReady = false;
+  late final String _roomId;
+
+  @override
+  void initState() {
+    super.initState();
+    _roomId = widget.contenidoId;
+    _loadCurrentUser();
+    _syncRoomState();
+  }
+
+  void _syncRoomState() {
+    // Chequear si ya estamos dentro de la sala
+    _roomReady = SocketService.instance.isInRoom(_roomId);
+    // Escuchar evento joined_room para habilitar env1o
+    SocketService.instance.on('joined_room', (data) {
+      final room = data['roomName'] ?? data['roomId'];
+      if (room == _roomId && mounted) {
+        setState(() { _roomReady = true; });
+      }
+    });
+  }
+
+  void _loadCurrentUser() async {
+    try {
+      final result = await AuthService.verifyToken();
+      if (result.success && result.user != null) {
+        setState(() {
+          _currentUserId = result.user!.id;
+          _currentUserName = result.user!.username;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error cargando usuario en input: $e');
+    }
+  }
+
+  io.Socket? get _activeSocket {
+    try {
+      // Recuperar socket desde algn servicio central (supuesto)
+      _socket ??= SocketService.instance.socket; // si no existe, ignorar
+    } catch (_) {}
+    return _socket;
+  }
+
+  void _enviarComentario() {
+    if (widget.esAudio) {
+      _grabarAudio();
+    } else {
+      _enviarTexto();
+    }
+  }
+
+  void _enviarTexto() {
+    if (_controller.text.trim().isEmpty) return;
+    if (!_roomReady) {
+      debugPrint('\u23f3 Sala a\u00ban no confirmada, reintentando...');
+      // Reintento simple: esperar un corto delay y reintentar una sola vez
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (_roomReady) {
+          _enviarTexto();
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Sala no lista todav\u00eda, intenta de nuevo'), duration: Duration(seconds: 2)),
+            );
+          }
+        }
+      });
+      return;
+    }
+
+    final contenidoTexto = _controller.text.trim();
+    _controller.clear();
+
+    // UI optimista: crear comentario local temporal (se reemplazar\u00e1 por el del servidor)
+    final tempId = 'temp_${DateTime.now().millisecondsSinceEpoch}';
+    final optimistic = Comentario(
+      id: tempId,
+      contenidoId: widget.contenidoId,
+      autorId: _currentUserId,
+      autorNombre: _currentUserName,
+      tipo: TipoComentario.texto,
+      contenido: contenidoTexto,
+      fechaCreacion: DateTime.now(),
+      ordenSecuencia: DateTime.now().microsecondsSinceEpoch, // base \u00fanica para estabilidad antes de reconciliar
+    );
+    widget.onComentarioAgregado(optimistic);
+
+    // ENVIAR AL SERVIDOR - el mensaje aparecer\u00e1 cuando el servidor lo confirme
+    SocketService.instance.sendMessage(
+      roomId: widget.contenidoId,
+      content: contenidoTexto,
+      type: 'text',
+    );
+    
+    debugPrint('\ud83d\udce4 Mensaje enviado al servidor: $contenidoTexto');
+  }
+
+  Future<void> _grabarAudio() async {
+    if (_grabandoAudio) {
+      // Detener grabaci\u00f3n
+      await _detenerGrabacion();
+    } else {
+      // Iniciar grabaci\u00f3n
+      await _iniciarGrabacion();
+    }
+  }
+
+  Future<void> _iniciarGrabacion() async {
+    try {
+      debugPrint('\ud83c\udfa4 Iniciando grabaci\u00f3n...');
+
+      if (kIsWeb) {
+        // Usar grabador nativo web
+        final success = await WebRecorderService.startRecording();
+        if (!success) {
+          throw Exception('No se pudo iniciar la grabaci\u00f3n web');
+        }
+      } else {
+        // Usar record package para m\u00f3vil
+        if (!await _audioRecorder.hasPermission()) {
+          debugPrint('\u274c Sin permisos de micr\u00f3fono');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('\u274c Permiso de micr\u00f3fono denegado'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          }
+          return;
+        }
+
+        const config = RecordConfig(
+          encoder: AudioEncoder.wav,
+          sampleRate: 44100,
+          bitRate: 128000,
+        );
+
+        final fileName = 'audio_${DateTime.now().millisecondsSinceEpoch}.wav';
+        await _audioRecorder.start(config, path: fileName);
+      }
+
+      setState(() {
+        _grabandoAudio = true;
+        _inicioGrabacion = DateTime.now();
+      });
+
+      debugPrint('\ud83d\udfe2 Grabaci\u00f3n iniciada correctamente');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('\ud83c\udfa4 Grabando... Toca STOP para enviar'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+
+    } catch (e) {
+      debugPrint('\u274c Error al iniciar grabaci\u00f3n: $e');
+      setState(() {
+        _grabandoAudio = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('\u274c Error: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+

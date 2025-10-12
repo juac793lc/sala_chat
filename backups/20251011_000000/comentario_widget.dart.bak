@@ -1,0 +1,43 @@
+import 'package:flutter/material.dart';
+import '../models/comentario.dart';
+// Eliminamos carga interna de usuario para evitar "reflejo" visual.
+import '../services/platform_audio_service.dart';
+
+class ComentarioWidget extends StatefulWidget {
+  final Comentario comentario;
+  final List<Comentario>? allAudioComments;
+  final String? currentUserId; // Se recibe desde la pantalla para evitar recarga
+  final String? currentUserName;
+
+  const ComentarioWidget({
+    super.key,
+    required this.comentario,
+    this.allAudioComments,
+    this.currentUserId,
+    this.currentUserName,
+  });
+
+  @override
+  State<ComentarioWidget> createState() => _ComentarioWidgetState();
+}
+
+class _ComentarioWidgetState extends State<ComentarioWidget> {
+  bool _isPlaying = false;
+  Duration _currentPosition = Duration.zero;
+  Duration _totalDuration = Duration.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    _setupPlaylistListeners();
+  }
+
+  @override
+  void didUpdateWidget(covariant ComentarioWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Si antes no ten\u00edamos user y ahora s\u00ed, forzar repaint (alignment correcto)
+    if (oldWidget.currentUserId == null && widget.currentUserId != null) {
+      setState(() {});
+    }
+  }
+
