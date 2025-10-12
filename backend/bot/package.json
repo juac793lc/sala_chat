@@ -1,0 +1,13 @@
+{
+  "name": "notimapa-telegram-bot",
+  "version": "1.0.0",
+  "description": "Bot Telegraf para confirmar registros de Telegram (NotiMapa)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "telegraf": "^4.12.3",
+    "node-fetch": "^2.6.7"
+  }
+}

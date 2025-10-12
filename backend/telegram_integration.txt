@@ -1,2 +1,4 @@
+# TELEGRAM_BOT_TOKEN (solo para pruebas locales). Puedes reemplazar/editar este valor.
+8483097946:AAGKnqi_llQ52SahHwzCiSFjgzAq4EKu8rc
 5230097038
 -4982500040

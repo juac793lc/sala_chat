@@ -14,6 +14,8 @@ const userLocations = new Map(); // socketId -> { lat, lng, ts }
 const activeMarkers = new Map(); // markerId -> markerData
 // Registro de quién ya fue notificado por cada marker
 const notifiedForMarker = new Map(); // markerId -> Set(socketId)
+// Registro de confirmaciones/negaciones en memoria
+// We'll store Sets inside the activeMarkers entry as .confirmedBy and .deniedBy
 
 // Parámetros de proximidad
 const TTL_LOCATION_MS = 60 * 1000; // 60s
@@ -24,6 +26,11 @@ const AUTO_REMOVE_MS = 50 * 60 * 1000; // 50 minutos
 
 // Internal flag to ensure we schedule existing markers only once
 let _markersInitialized = false;
+
+// Admin list from env (comma separated) - fallback empty
+const ADMIN_USER_IDS = (process.env.ADMIN_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+// Default admin PIN (fallback) - puedes cambiar esto en env si lo deseas
+const DEFAULT_ADMIN_PIN = process.env.DEFAULT_ADMIN_PIN || '041990';
 
 /**
  * Schedule a single auto-remove timer for a marker using remaining time calculated
@@ -100,7 +107,7 @@ async function scheduleExistingMarkers(io) {
       const createdAtMs = m.created_at_ms || (m.created_at ? Date.parse(m.created_at) : Date.now());
       const tipo = m.tipo_reporte || 'interes';
       // Keep in-memory activeMarkers in sync
-      activeMarkers.set(markerId, {
+        activeMarkers.set(markerId, {
         id: markerId,
         userId: m.user_id,
         username: m.user_nombre,
@@ -108,7 +115,9 @@ async function scheduleExistingMarkers(io) {
         longitude: m.longitude,
         tipoReporte: tipo,
         timestamp: createdAtMs,
-        expiresAt: createdAtMs + AUTO_REMOVE_MS
+          expiresAt: createdAtMs + AUTO_REMOVE_MS,
+          confirmedBy: new Set(),
+          deniedBy: new Set()
       });
       notifiedForMarker.set(markerId, new Set());
       _scheduleAutoRemove(markerId, createdAtMs, tipo, io);
@@ -176,17 +185,39 @@ const authenticateSocket = async (socket) => {
   try {
     const token = socket.handshake.auth.token;
     console.log(`🔍 Token recibido: ${token ? 'SÍ' : 'NO'}`);
-    
+
     if (!token) {
-      throw new Error('No token provided');
+      // Allow anonymous connections: create a lightweight anonymous user
+      const anonId = `anon_${uuidv4().slice(0, 8)}`;
+      const anonUser = {
+        id: anonId,
+        username: `Anon_${anonId}`,
+        avatar: `AN:#BDBDBD`,
+        isOnline: true,
+        socketId: socket.id,
+        isAnonymous: true,
+        isAdmin: false
+      };
+      simpleBD.users.push(anonUser);
+      registeredUsersSet.add(anonUser.id);
+      console.log(`👤 Usuario anónimo conectado: ${anonUser.username} (Total registrados: ${registeredUsersSet.size})`);
+      return anonUser;
     }
 
-  const decoded = jwt.verify(token, getJwtSecret());
+    // If token exists, verify JWT as before
+    const decoded = jwt.verify(token, getJwtSecret());
     console.log(`✅ Token decodificado para usuario: ${decoded.userId} (${decoded.username})`);
-    
+
     // Registrar usuario único (acumula total de usuarios con la app)
     registeredUsersSet.add(decoded.userId);
-    
+
+  // Determine admin flag from token, env list or handshake pin
+  const isAdminFromToken = !!decoded.isAdmin;
+  const isAdminFromEnv = ADMIN_USER_IDS.includes((decoded.userId || '').toString());
+  // Allow admin via handshake PIN for quick identification (handshake.auth.pin or .adminPin)
+  const handshakePin = socket.handshake && (socket.handshake.auth?.pin || socket.handshake.auth?.adminPin);
+  const isAdminFromPin = handshakePin && (handshakePin.toString() === (process.env.DEFAULT_ADMIN_PIN || DEFAULT_ADMIN_PIN));
+
     let user = simpleBD.users.find(u => u.id === decoded.userId);
     if (!user) {
       user = {
@@ -194,21 +225,24 @@ const authenticateSocket = async (socket) => {
         username: decoded.username || `User_${decoded.userId}`,
         avatar: `${(decoded.username || 'U').substring(0, 2).toUpperCase()}:#4ECDC4`,
         isOnline: true,
-        socketId: socket.id
+        socketId: socket.id,
+        isAdmin: isAdminFromToken || isAdminFromEnv || !!isAdminFromPin || false
       };
       simpleBD.users.push(user);
-      console.log(`👤 Nuevo usuario registrado: ${user.username} (Total registrados: ${registeredUsersSet.size})`);
+      console.log(`👤 Nuevo usuario registrado: ${user.username} (Total registrados: ${registeredUsersSet.size})${user.isAdmin ? ' [ADMIN]' : ''}`);
     } else {
       // Actualizar con nombre del token
       user.username = decoded.username || user.username;
       user.isOnline = true;
       user.socketId = socket.id;
-      console.log(`👤 Usuario reconectado: ${user.username} (Total registrados: ${registeredUsersSet.size})`);
+      user.isAdmin = user.isAdmin || isAdminFromToken || isAdminFromEnv || !!isAdminFromPin;
+      console.log(`👤 Usuario reconectado: ${user.username} (Total registrados: ${registeredUsersSet.size})${user.isAdmin ? ' [ADMIN]' : ''}`);
     }
-    
+
     return user;
   } catch (error) {
     console.log(`❌ Error auth: ${error.message}`);
+    // If token verification failed, refuse connection
     throw new Error('Token inválido');
   }
 };
@@ -341,6 +375,12 @@ const handleSocketConnection = async (socket, io) => {
     // Nuevo contenido multimedia (evento de la app mobile/legacy)
     socket.on('nuevo_contenido', async (data) => {
       try {
+        // Only admins allowed to share multimedia via this event
+        if (!user || !user.isAdmin) {
+          console.log(`⛔ Usuario ${user?.username || 'anon'} no autorizado a compartir contenido`);
+          socket.emit('error_message', { error: 'No autorizado para subir contenido multimedia' });
+          return;
+        }
         console.log(`🖼️ ${user.username} compartió nuevo contenido (raw tipo='${data.tipo}')`);
 
         // Normalizar tipo a valores esperados: image|video|audio
@@ -398,6 +438,12 @@ const handleSocketConnection = async (socket, io) => {
     // Nuevo multimedia (evento específico para feed compartido)
     socket.on('nuevo_multimedia', async (data) => {
       try {
+        // Only admins allowed to post multimedia
+        if (!user || !user.isAdmin) {
+          console.log(`⛔ Usuario ${user?.username || 'anon'} no autorizado a subir multimedia`);
+          socket.emit('error_message', { error: 'No autorizado para subir multimedia' });
+          return;
+        }
         const { roomId, contenido } = data;
         console.log(`📸 ${user.username} compartió multimedia en sala ${roomId}`);
         console.log(`📋 Datos recibidos:`, JSON.stringify(data, null, 2));
@@ -553,7 +599,10 @@ const handleSocketConnection = async (socket, io) => {
         longitude: data.longitude,
         tipoReporte: normalizedTipo,
         timestamp: Date.now(),
-        expiresAt: Date.now() + AUTO_REMOVE_MS
+        expiresAt: Date.now() + AUTO_REMOVE_MS,
+        // in-memory sets (not serialized)
+        confirmedBy: new Set(),
+        deniedBy: new Set()
       };
 
       // Normalized lower-case tipo for later checks
@@ -570,8 +619,8 @@ const handleSocketConnection = async (socket, io) => {
           tipo_reporte: normalizedTipo
         });
         
-        // Mantener marker activo en memoria para notificaciones por proximidad
-        activeMarkers.set(markerId, markerData);
+  // Mantener marker activo en memoria para notificaciones por proximidad
+  activeMarkers.set(markerId, markerData);
         notifiedForMarker.set(markerId, new Set());
 
         // Notificar inmediatamente a sockets que tienen ubicación reciente y estén dentro del radio
@@ -631,8 +680,16 @@ const handleSocketConnection = async (socket, io) => {
         }
 
         // Enviar a todos los usuarios conectados (incluyendo el que lo creó)
-        socket.broadcast.emit('marker_added', markerData);
-        socket.emit('marker_confirmed', markerData);
+        try {
+          // Emit marker_added with public fields (counts) - do not expose Sets
+          const publicMarker = Object.assign({}, markerData, { confirms: 0, denies: 0 });
+          io.emit('marker_added', publicMarker);
+        } catch (e) {
+          // Fallback: broadcast + confirm
+          const publicMarker = Object.assign({}, markerData, { confirms: 0, denies: 0 });
+          socket.broadcast.emit('marker_added', publicMarker);
+          socket.emit('marker_confirmed', publicMarker);
+        }
         
         console.log(`✅ Marcador ${markerId} guardado en BD`);
         
@@ -711,6 +768,46 @@ const handleSocketConnection = async (socket, io) => {
       }
     });
 
+    // Confirmar marcador (usuario pulsa confirmar)
+    socket.on('confirm_marker', async (data) => {
+      try {
+        const markerId = data && data.markerId;
+        if (!markerId) return;
+        if (!activeMarkers.has(markerId)) return;
+        const marker = activeMarkers.get(markerId);
+        marker.confirmedBy = marker.confirmedBy || new Set();
+        marker.deniedBy = marker.deniedBy || new Set();
+        if (!marker.confirmedBy.has(user.id)) {
+          marker.confirmedBy.add(user.id);
+          // If user had denied before, remove their denial
+          if (marker.deniedBy.has(user.id)) marker.deniedBy.delete(user.id);
+          // broadcast updated counts
+          io.emit('marker_updated', { id: markerId, confirms: marker.confirmedBy.size, denies: marker.deniedBy.size });
+        }
+      } catch (err) {
+        console.error('❌ Error en confirm_marker:', err.message || err);
+      }
+    });
+
+    // Negar marcador (usuario pulsa negar)
+    socket.on('deny_marker', async (data) => {
+      try {
+        const markerId = data && data.markerId;
+        if (!markerId) return;
+        if (!activeMarkers.has(markerId)) return;
+        const marker = activeMarkers.get(markerId);
+        marker.confirmedBy = marker.confirmedBy || new Set();
+        marker.deniedBy = marker.deniedBy || new Set();
+        if (!marker.deniedBy.has(user.id)) {
+          marker.deniedBy.add(user.id);
+          if (marker.confirmedBy.has(user.id)) marker.confirmedBy.delete(user.id);
+          io.emit('marker_updated', { id: markerId, confirms: marker.confirmedBy.size, denies: marker.deniedBy.size });
+        }
+      } catch (err) {
+        console.error('❌ Error en deny_marker:', err.message || err);
+      }
+    });
+
     // Evento para eliminar marcador del mapa
     socket.on('remove_marker', async (data) => {
       console.log(`🗑️ Eliminar marcador ${data.markerId} por ${user.username}`);
@@ -756,7 +853,9 @@ const handleSocketConnection = async (socket, io) => {
           longitude: marker.longitude,
           tipoReporte: marker.tipo_reporte,
           // Preferir valor en ms calculado por la query; fallback a parse
-          timestamp: marker.created_at_ms || new Date(marker.created_at).getTime()
+          timestamp: marker.created_at_ms || new Date(marker.created_at).getTime(),
+          confirms: (activeMarkers.get(marker.marker_id)?.confirmedBy?.size) || 0,
+          denies: (activeMarkers.get(marker.marker_id)?.deniedBy?.size) || 0
         }));
         
         socket.emit('existing_markers', formattedMarkers);

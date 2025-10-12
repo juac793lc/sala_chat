@@ -3,9 +3,21 @@ const fs = require('fs');
 const path = require('path');
 
 // Nota: token embebido por petición del usuario para pruebas locales
+// Leer token de entorno o, si no existe, desde el archivo de integración (telegram_integration.txt)
 let token = process.env.TELEGRAM_BOT_TOKEN || '';
 if (!token) {
-  token = '8483097946:AAGKnqi_llQ52SahHwzCiSFjgzAq4EKu8rc';
+  try {
+    const p = path.join(__dirname, '..', '..', 'telegram_integration.txt');
+    if (fs.existsSync(p)) {
+      const content = fs.readFileSync(p, 'utf8').trim();
+      // Buscar una linea que parezca token (contiene ':' y al menos 10 caracteres)
+      const lines = content.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const tokenLine = lines.find(l => l.includes(':') && l.length > 10);
+      if (tokenLine) token = tokenLine;
+    }
+  } catch (e) {
+    console.warn('No se pudo leer telegram_integration.txt para token:', e.message || e);
+  }
 }
 
 async function sendMessage(chatId, text) {
