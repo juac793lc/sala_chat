@@ -42,23 +42,37 @@ app.use(helmet({
   contentSecurityPolicy: false, // simplificar en dev
   originAgentCluster: false,
 }));
-app.use(cors({
-  origin: true, // Permitir todos los orígenes para desarrollo
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  credentials: true,
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
-  optionsSuccessStatus: 200
-}));
-
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: (process.env.RATE_LIMIT_WINDOW || 15) * 60 * 1000, // 15 minutos
-  max: process.env.RATE_LIMIT_MAX_REQUESTS || 100,
-  message: {
-    error: 'Demasiadas peticiones, intenta de nuevo más tarde'
+// Custom CORS reflector middleware
+// Refleja el Origin recibido para que el navegador reciba Access-Control-Allow-Origin
+// igual al Origin de la petición (útil en desarrollo/local). En producción es
+// preferible usar una lista blanca de orígenes.
+app.use((req, res, next) => {
+  const origin = req.get('Origin') || req.get('origin') || '*';
+  // Si el origen viene vacío (requests directas desde curl/servers), usamos '*'
+  res.header('Access-Control-Allow-Origin', origin);
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  // Forra OPTIONS preflight responses
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
   }
+  next();
 });
-app.use('/api/', limiter);
+
+// Rate limiting (se puede desactivar en despliegues temporales mediante SKIP_RATE_LIMIT=true)
+if (process.env.SKIP_RATE_LIMIT !== 'true') {
+  const limiter = rateLimit({
+    windowMs: (process.env.RATE_LIMIT_WINDOW || 15) * 60 * 1000, // 15 minutos
+    max: process.env.RATE_LIMIT_MAX_REQUESTS || 100,
+    message: {
+      error: 'Demasiadas peticiones, intenta de nuevo más tarde'
+    }
+  });
+  app.use('/api/', limiter);
+} else {
+  console.warn('⚠️ SKIP_RATE_LIMIT=true -> express-rate-limit deshabilitado temporalmente');
+}
 
 // Middleware de logging para debug
 app.use((req, res, next) => {
