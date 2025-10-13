@@ -91,6 +91,17 @@ const initDb = async () => {
     );
 
     CREATE INDEX IF NOT EXISTS idx_telegram_user ON telegram_registrations(user_id);
+
+    -- Tabla temporal/efimera para tokens de registro via deep-link (one-time tokens)
+    CREATE TABLE IF NOT EXISTS telegram_registration_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      token TEXT UNIQUE,
+      user_id TEXT,
+      expires_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_telegram_tokens_user ON telegram_registration_tokens(user_id);
   `);
   
   // Guardar cambios inmediatamente
@@ -292,6 +303,47 @@ module.exports = {
       rows.push(this._rowToObject(res[0], i));
     }
     return rows;
+  },
+
+  // Tokens efimeros para deep-link registration
+  async insertTelegramRegistrationToken(token, userId, expiresAtIso) {
+    const database = await initDb();
+    try {
+      const stmt = database.prepare(`INSERT INTO telegram_registration_tokens (token, user_id, expires_at) VALUES (?, ?, ?)`);
+      stmt.run([token, userId, expiresAtIso]);
+      saveDb();
+      const res = database.exec('SELECT * FROM telegram_registration_tokens WHERE token = ?', [token]);
+      return res.length > 0 && res[0].values.length > 0 ? this._rowToObject(res[0], 0) : null;
+    } catch (e) {
+      console.warn('\u26a0\ufe0f insertTelegramRegistrationToken error:', e.message);
+      return null;
+    }
+  },
+
+  async consumeTelegramRegistrationToken(token) {
+    const database = await initDb();
+    try {
+      const res = database.exec('SELECT id, token, user_id, expires_at, created_at FROM telegram_registration_tokens WHERE token = ?', [token]);
+      if (res.length === 0 || res[0].values.length === 0) return null;
+      const row = this._rowToObject(res[0], 0);
+      // Check expiry
+      if (row.expires_at && Date.parse(row.expires_at) < Date.now()) {
+        // Delete expired token
+        try { const del = database.prepare('DELETE FROM telegram_registration_tokens WHERE token = ?'); del.run([token]); saveDb(); } catch (e) {}
+        return { expired: true };
+      }
+      // Delete token (single-use)
+      try { const del = database.prepare('DELETE FROM telegram_registration_tokens WHERE token = ?'); del.run([token]); saveDb(); } catch (e) {}
+      return row;
+    } catch (e) {
+      console.warn('\u26a0\ufe0f consumeTelegramRegistrationToken error:', e.message);
+      return null;
+    }
+  },
+
+  // Associate chat_id given a user_id (used after token consumption)
+  async insertTelegramRegistrationForUser(userId, chatId) {
+    return await this.insertTelegramRegistration(userId, chatId);
   },
 
   async removePushSubscription(endpoint) {

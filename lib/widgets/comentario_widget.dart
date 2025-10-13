@@ -132,7 +132,7 @@ class _ComentarioWidgetState extends State<ComentarioWidget> {
         ),
         boxShadow: [
           BoxShadow(
-            color: (_isPlaying ? Colors.green : Colors.black).withValues(alpha: 0.1),
+            color: (_isPlaying ? Colors.green : Colors.black).withOpacity(0.1),
             blurRadius: _isPlaying ? 4 : 2, // Sombra más pronunciada cuando reproduce
             offset: const Offset(0, 1),
           ),
@@ -187,7 +187,7 @@ class _ComentarioWidgetState extends State<ComentarioWidget> {
                 borderRadius: BorderRadius.circular(_isPlaying ? 16 : 14),
                 boxShadow: _isPlaying ? [
                   BoxShadow(
-                    color: Colors.green.withValues(alpha: 0.4),
+                    color: Colors.green.withOpacity(0.4),
                     blurRadius: 8,
                     spreadRadius: 1,
                   ),
@@ -203,7 +203,7 @@ class _ComentarioWidgetState extends State<ComentarioWidget> {
                       width: 24,
                       height: 24,
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.3),
+                        color: Colors.white.withOpacity(0.3),
                         borderRadius: BorderRadius.circular(12),
                       ),
                     ),
@@ -408,7 +408,7 @@ class _ComentarioWidgetState extends State<ComentarioWidget> {
                         borderRadius: BorderRadius.circular(18),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.05),
+                            color: Colors.black.withOpacity(0.05),
                             blurRadius: 3,
                             offset: const Offset(0, 1),
                           ),
@@ -426,7 +426,7 @@ class _ComentarioWidgetState extends State<ComentarioWidget> {
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,
                                 color: esMiMensaje 
-                                    ? Colors.white.withValues(alpha: 0.8) 
+                                    ? Colors.white.withOpacity(0.8) 
                                     : Colors.grey.shade600,
                               ),
                             ),
@@ -444,7 +444,7 @@ class _ComentarioWidgetState extends State<ComentarioWidget> {
                               _formatearTiempo(widget.comentario.fechaCreacion),
                               style: TextStyle(
                                 color: esMiMensaje 
-                                    ? Colors.white.withValues(alpha: 0.7) 
+                                    ? Colors.white.withOpacity(0.7) 
                                     : Colors.grey.shade500,
                                 fontSize: 11,
                               ),

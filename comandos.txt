@@ -3,13 +3,48 @@ servidor local
 
 
 // comando flutter
-flutter run -d chrome --dart-define=API_BASE=http://localhost:3000
+
+# === COMANDOS FLUTTER ===
+# Para desarrollo local (backend local):
+# 1. Edita lib/config/endpoints.dart y pon:
+#    static const String base = 'http://localhost:3001';
+# 2. Ejecuta:
+cd C:\Users\Lenovo\Desktop\notimapa\sala_chat
+flutter pub get
+flutter run -d chrome
+
+# Para producción (backend Railway):
+# 1. Edita lib/config/endpoints.dart y pon:
+#    static const String base = 'https://notimapa-production.up.railway.app';
+# 2. Ejecuta:
+cd C:\Users\Lenovo\Desktop\notimapa\sala_chat
+flutter pub get
+flutter run -d chrome
 
 
+
+
+
+
+
+
+
+
+baken inicia
+
+# === COMANDOS BACKEND ===
+# Para desarrollo local:
+cd C:\Users\Lenovo\Desktop\notimapa\sala_chat\backend
+npm install
+npm run dev
 
 
 /// comando backend
-cd C:\Users\Lenovo\Desktop\sala_chat\backend; npm start
+
+# Para producción (Railway):
+# Railway ejecuta automáticamente npm start en el backend
+cd C:\Users\Lenovo\Desktop\notimapa\sala_chat\backend
+npm start
 
 // listar registrado
 Invoke-RestMethod -Uri 'http://localhost:3000/api/telegram/list' -Method GET

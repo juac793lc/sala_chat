@@ -196,10 +196,23 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
     }
   }
 
-  void _setupSocketConnection() {
-    // Conectar al servidor si no está conectado
+  Future<void> _setupSocketConnection() async {
+    // Conectar al servidor si no está conectado (esperar resultado)
+    bool ok = true;
     if (!SocketService.instance.isConnected) {
-      SocketService.instance.connect();
+      ok = await SocketService.instance.connect();
+    }
+
+    if (!ok || !SocketService.instance.isConnected) {
+      // Mostrar aviso al usuario para que inicie sesión/registre el token
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('No conectado: por favor inicia sesión para sincronizar el mapa'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 4),
+        ));
+      }
+      return;
     }
 
     // Unirse a la sala del proyecto
@@ -492,23 +505,13 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
             children: [
               // Header con perfil del usuario
               HeaderWidget(
-                titulo: 'Proyecto X 🚀',
+                titulo: 'notimapa',
                 miembrosTotal: usuarios.length,
                 miembrosConectados: _usuariosConectados,
                 userName: _currentUserName,
                 userAvatar: _currentUserAvatar,
                 suscritos: _usuariosSuscritos,
-                onNotificationTap: _pushService != null ? () async {
-                  final key = await _pushService!.getVapidPublicKey();
-                  if (key != null) {
-                    final ok = await _pushService!.registerServiceWorkerAndSubscribe(key, null);
-                    if (ok) {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Notificaciones activadas')));
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error activando notificaciones')));
-                    }
-                  }
-                } : null,
+                onNotificationTap: null,
               ),
               // Indicador de carga inicial
               if (_cargandoInicial)
@@ -543,18 +546,8 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
                       ),
               ),
               
-              // Widget Mapa que se despliega desde abajo
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOut,
-                // Subir a 70% de la pantalla para que el mapa se vea más grande
-                height: _mostrarBliz ? MediaQuery.of(context).size.height * 0.7 : 0,
-                child: _mostrarBliz
-                    ? MapaWidget(
-                        onClose: _cerrarBliz,
-                      )
-                    : null,
-              ),
+              // Nota: el mapa se muestra como overlay Positioned abajo (más abajo en el árbol)
+              // para evitar que su altura afecte el layout principal y provoque overflows.
             ],
           ),
           
@@ -563,6 +556,18 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
             roomId: widget.roomId,
             onContenidoAgregado: _agregarContenido,
             onMapaTap: _toggleBliz,
+          ),
+          // Mapa como overlay para evitar overflow del Column
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+              height: _mostrarBliz ? MediaQuery.of(context).size.height * 0.9 : 0,
+              child: MapaWidget(onClose: _cerrarBliz),
+            ),
           ),
         ],
       ),

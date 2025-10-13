@@ -29,6 +29,7 @@ class _InputMultimediaWidgetState extends State<InputMultimediaWidget>
     with TickerProviderStateMixin {
   late final AnimationController _animationController;
   late final Animation<double> _scaleAnimation;
+  // No almacenar PIN en código; pediremos al usuario que lo introduzca al intentar subir
 
   @override
   void initState() {
@@ -40,6 +41,42 @@ class _InputMultimediaWidgetState extends State<InputMultimediaWidget>
     _scaleAnimation = Tween<double>(begin: 1, end: 0.92).animate(
       CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
     );
+  }
+
+  Future<void> _requestAdminPinThenOpenGallery() async {
+    final controller = TextEditingController();
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clave administrativa'),
+        content: TextField(
+          controller: controller,
+          obscureText: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            hintText: 'Introduce la clave',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancelar')),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Aceptar'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != true) return;
+    final pin = controller.text.trim();
+    if (pin == '041990') {
+      await _abrirGaleriaDirecta();
+    } else {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Clave incorrecta'), backgroundColor: Colors.red),
+      );
+    }
   }
 
   @override
@@ -188,7 +225,7 @@ class _InputMultimediaWidgetState extends State<InputMultimediaWidget>
               borderRadius: BorderRadius.circular(28),
               boxShadow: [
                 BoxShadow(
-                  color: colores.last.withValues(alpha: 0.35),
+                  color: colores.last.withOpacity(0.35),
                   blurRadius: 8,
                   offset: const Offset(0, 4),
                 ),
@@ -268,8 +305,9 @@ class _InputMultimediaWidgetState extends State<InputMultimediaWidget>
             ),
             const SizedBox(height: 12),
           ],
+          // Always show upload button; require PIN in a small dialog before allowing upload
           _buildBoton(
-            onTap: _abrirGaleriaDirecta,
+            onTap: _requestAdminPinThenOpenGallery,
             colores: const [Color(0xFF4CAF50), Color(0xFF81C784)],
             icono: Icons.add,
           ),

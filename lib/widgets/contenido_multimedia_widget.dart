@@ -1,11 +1,11 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:audioplayers/audioplayers.dart';
+// audio UI removed: we only show image and video previews
 import '../models/contenido_multimedia.dart';
 import 'dart:html' as html; // ignore: avoid_web_libraries_in_flutter
 import 'dart:ui_web' as ui;
-import 'dart:async';
+// no async helpers needed
 
 class ContenidoMultimediaWidget extends StatefulWidget {
   final ContenidoMultimedia contenido;
@@ -24,46 +24,15 @@ class ContenidoMultimediaWidget extends StatefulWidget {
 }
 
 class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
-  late AudioPlayer _audioPlayer;
-  bool _isPlaying = false;
-  Duration _duration = Duration.zero;
-  Duration _position = Duration.zero;
-
   @override
   void initState() {
     super.initState();
-    _audioPlayer = AudioPlayer();
-    
-    // Escuchar cambios en el reproductor
-    _audioPlayer.onPlayerStateChanged.listen((state) {
-      if (mounted) {
-        setState(() {
-          _isPlaying = state == PlayerState.playing;
-        });
-      }
-    });
-
-    _audioPlayer.onDurationChanged.listen((duration) {
-      if (mounted) {
-        setState(() {
-          _duration = duration;
-        });
-      }
-    });
-
-    _audioPlayer.onPositionChanged.listen((position) {
-      if (mounted) {
-        setState(() {
-          _position = position;
-        });
-      }
-    });
+    // No audio initialization in simplified UI
   }
 
   @override
   void dispose() {
-    _audioPlayer.dispose();
-    // Cancel any image stream listeners? (listeners are removed after receive)
+    // No audio resources to dispose here
     super.dispose();
   }
 
@@ -71,208 +40,7 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
   final Map<String, BoxFit> _imageFitCache = {};
   final Set<String> _resolvingFits = {};
 
-  // Función para reproducir/pausar audio
-  Future<void> _toggleAudioPlayback() async {
-    try {
-      if (_isPlaying) {
-        await _audioPlayer.pause();
-      } else {
-        // Reproducir archivo de audio real
-        if (kIsWeb && widget.contenido.url.startsWith('blob:')) {
-          await _audioPlayer.play(UrlSource(widget.contenido.url));
-        } else if (!kIsWeb) {
-          await _audioPlayer.play(DeviceFileSource(widget.contenido.url));
-        } else {
-          // Fallback para assets
-          await _audioPlayer.play(AssetSource('audio/ejemplo.mp3'));
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error al reproducir audio: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  // Widget del reproductor de audio
-  Widget _buildAudioWidget() {
-    return Container(
-      height: 120,
-      width: double.infinity,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.green.shade100, Colors.blue.shade100],
-        ),
-      ),
-      child: Stack(
-        children: [
-          // Contenido del reproductor
-          Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    // Botón play/pause
-                    GestureDetector(
-                      onTap: _toggleAudioPlayback,
-                      child: Container(
-                        width: 50,
-                        height: 50,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: _isPlaying ? Colors.red : Colors.green,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.2),
-                              blurRadius: 4,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        child: Icon(
-                          _isPlaying ? Icons.pause : Icons.play_arrow,
-                          color: Colors.white,
-                          size: 28,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    // Información del audio
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          '🎧 Audio grabado',
-                          style: TextStyle(
-                            color: Colors.blue,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 16,
-                          ),
-                        ),
-                        Text(
-                          '${_formatDuration(_position)} / ${_formatDuration(_duration)}',
-                          style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                // Barra de progreso responsiva
-                Expanded(
-                  child: Container(
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                    child: LayoutBuilder(builder: (context, constraints) {
-                      final width = constraints.maxWidth;
-                      final filled = _duration.inMilliseconds > 0
-                          ? width * (_position.inMilliseconds / _duration.inMilliseconds)
-                          : 0.0;
-                      return Stack(
-                        children: [
-                          Container(
-                            width: filled,
-                            height: 4,
-                            decoration: BoxDecoration(
-                              color: Colors.green,
-                              borderRadius: BorderRadius.circular(2),
-                            ),
-                          ),
-                        ],
-                      );
-                    }),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          
-          // Overlay con perfil
-          Positioned(
-            top: 12,
-            left: 12,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.6),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 24,
-                    height: 24,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: LinearGradient(
-                        colors: [Colors.blue.shade300, Colors.purple.shade300],
-                      ),
-                    ),
-                    child: Center(
-                      child: Text(
-                        widget.contenido.autorNombre[0].toUpperCase(),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    '${widget.contenido.autorNombre} · ${_formatearTiempo(widget.contenido.fechaCreacion)}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Formatear duración para mostrar
-  String _formatDuration(Duration duration) {
-    String twoDigits(int n) => n.toString().padLeft(2, '0');
-    final minutes = twoDigits(duration.inMinutes.remainder(60));
-    final seconds = twoDigits(duration.inSeconds.remainder(60));
-    return '$minutes:$seconds';
-  }
-
-  String _formatearTiempo(DateTime fecha) {
-    final now = DateTime.now();
-    final difference = now.difference(fecha);
-    
-    if (difference.inMinutes < 1) {
-      return 'Ahora';
-    } else if (difference.inHours < 1) {
-      return '${difference.inMinutes}m';
-    } else if (difference.inDays < 1) {
-      return '${difference.inHours}h';
-    } else {
-      return '${difference.inDays}d';
-    }
-  }
+  // Audio helpers removed for simplified UI
 
   // Construir widget de imagen compatible con PWA y dispositivos nativos
   Widget _buildImageWidget() {
@@ -429,7 +197,7 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
     switch (widget.contenido.tipo) {
       case TipoContenido.imagen:
         final screenHeight = MediaQuery.of(context).size.height;
-        final desired = (screenHeight * 0.65).clamp(260.0, 700.0);
+  final desired = (screenHeight * 0.50).clamp(200.0, 700.0);
         return SizedBox(
           height: desired,
           width: double.infinity,
@@ -442,60 +210,14 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
                   child: _buildImageWidget(),
                 ),
               ),
-              // Overlay con perfil en la parte superior
-              Positioned(
-                top: 12,
-                left: 12,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.6),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 24,
-                        height: 24,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: LinearGradient(
-                            colors: [Colors.blue.shade300, Colors.purple.shade300],
-                          ),
-                        ),
-                        child: Center(
-                          child: Text(
-                            widget.contenido.autorNombre[0].toUpperCase(),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        '${widget.contenido.autorNombre} · ${_formatearTiempo(widget.contenido.fechaCreacion)}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-
+              // Overlay de autor eliminado por request del usuario (se retiró el widget)
             ],
           ),
         );
         
       case TipoContenido.video:
         final screenHeight = MediaQuery.of(context).size.height;
-        final desired = (screenHeight * 0.65).clamp(260.0, 700.0);
+  final desired = (screenHeight * 0.50).clamp(200.0, 700.0);
         return SizedBox(
           height: desired,
           width: double.infinity,
@@ -510,58 +232,14 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
                   child: _buildVideoPlayer(),
                 ),
               ),
-              // Overlay con perfil
-              Positioned(
-                top: 12,
-                left: 12,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.6),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 24,
-                        height: 24,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: LinearGradient(
-                            colors: [Colors.blue.shade300, Colors.purple.shade300],
-                          ),
-                        ),
-                        child: Center(
-                          child: Text(
-                            widget.contenido.autorNombre[0].toUpperCase(),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        '${widget.contenido.autorNombre} · ${_formatearTiempo(widget.contenido.fechaCreacion)}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              // Overlay de autor eliminado por request del usuario (se retiró el widget)
             ],
           ),
         );
         
       case TipoContenido.audio:
-        return _buildAudioWidget();
+        // Ocultar audio en esta vista simplificada
+        return const SizedBox.shrink();
     }
   }
 
@@ -630,134 +308,7 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
           // Contenido multimedia con overlay integrado
           _buildContenidoPreview(),
           
-          // Botones de comentarios sin bordes y compactos
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: widget.onTextoTap,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 24,
-                            height: 24,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.blue.withValues(alpha: 0.1),
-                            ),
-                            child: Icon(
-                              Icons.chat_bubble_outline,
-                              size: 12,
-                              color: Colors.blue.shade600,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Comentarios',
-                                  style: TextStyle(
-                                    color: Colors.grey.shade800,
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 12,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                Text(
-                                  '${widget.contenido.comentariosTexto} respuestas',
-                                  style: TextStyle(
-                                    color: Colors.grey.shade500,
-                                    fontSize: 10,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                          Icon(
-                            Icons.arrow_forward_ios,
-                            size: 14,
-                            color: Colors.grey.shade400,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                Container(
-                  width: 1,
-                  height: 28,
-                  color: Colors.grey.shade200,
-                ),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: widget.onAudioTap,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: Row(
-                        children: [
-                          const SizedBox(width: 12),
-                          Container(
-                            width: 24,
-                            height: 24,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.green.withValues(alpha: 0.1),
-                            ),
-                            child: Icon(
-                              Icons.mic_none,
-                              size: 12,
-                              color: Colors.green.shade600,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Notas de voz',
-                                  style: TextStyle(
-                                    color: Colors.grey.shade800,
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 12,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                Text(
-                                  '${widget.contenido.comentariosAudio} audios',
-                                  style: TextStyle(
-                                    color: Colors.grey.shade500,
-                                    fontSize: 10,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                          Icon(
-                            Icons.arrow_forward_ios,
-                            size: 14,
-                            color: Colors.grey.shade400,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          // Botones de comentarios y notas de voz eliminados para interfaz limpia
         ],
       ),
     );

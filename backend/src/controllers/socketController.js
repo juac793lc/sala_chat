@@ -24,6 +24,19 @@ const AUTO_REMOVE_MS = 50 * 60 * 1000; // 50 minutos
 
 // Internal flag to ensure we schedule existing markers only once
 let _markersInitialized = false;
+// Io instance exposable para que rutas REST puedan emitir
+let _ioInstance = null;
+
+function setIoInstance(io) {
+  try {
+    _ioInstance = io;
+    console.log('🔌 setIoInstance OK');
+    // Schedule any existing markers now that we have io
+    try { scheduleExistingMarkers(io); } catch (e) { console.warn('Could not schedule on setIoInstance:', e.message || e); }
+  } catch (e) {
+    console.warn('🔌 setIoInstance error:', e.message || e);
+  }
+}
 
 /**
  * Schedule a single auto-remove timer for a marker using remaining time calculated
@@ -176,40 +189,63 @@ const authenticateSocket = async (socket) => {
   try {
     const token = socket.handshake.auth.token;
     console.log(`🔍 Token recibido: ${token ? 'SÍ' : 'NO'}`);
-    
-    if (!token) {
-      throw new Error('No token provided');
+
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, getJwtSecret());
+        console.log(`✅ Token decodificado para usuario: ${decoded.userId} (${decoded.username})`);
+        registeredUsersSet.add(decoded.userId);
+        let user = simpleBD.users.find(u => u.id === decoded.userId);
+        if (!user) {
+          user = {
+            id: decoded.userId,
+            username: decoded.username || `User_${decoded.userId}`,
+            avatar: `${(decoded.username || 'U').substring(0, 2).toUpperCase()}:#4ECDC4`,
+            isOnline: true,
+            socketId: socket.id
+          };
+          simpleBD.users.push(user);
+          console.log(`👤 Nuevo usuario registrado: ${user.username} (Total registrados: ${registeredUsersSet.size})`);
+        } else {
+          user.username = decoded.username || user.username;
+          user.isOnline = true;
+          user.socketId = socket.id;
+          console.log(`👤 Usuario reconectado: ${user.username} (Total registrados: ${registeredUsersSet.size})`);
+        }
+        return user;
+      } catch (err) {
+        console.log(`❌ Token inválido: ${err.message}, se conectará como anónimo`);
+        // fallthrough to anonymous
+      }
     }
 
-  const decoded = jwt.verify(token, getJwtSecret());
-    console.log(`✅ Token decodificado para usuario: ${decoded.userId} (${decoded.username})`);
-    
-    // Registrar usuario único (acumula total de usuarios con la app)
-    registeredUsersSet.add(decoded.userId);
-    
-    let user = simpleBD.users.find(u => u.id === decoded.userId);
-    if (!user) {
-      user = {
-        id: decoded.userId,
-        username: decoded.username || `User_${decoded.userId}`,
-        avatar: `${(decoded.username || 'U').substring(0, 2).toUpperCase()}:#4ECDC4`,
-        isOnline: true,
-        socketId: socket.id
-      };
-      simpleBD.users.push(user);
-      console.log(`👤 Nuevo usuario registrado: ${user.username} (Total registrados: ${registeredUsersSet.size})`);
-    } else {
-      // Actualizar con nombre del token
-      user.username = decoded.username || user.username;
-      user.isOnline = true;
-      user.socketId = socket.id;
-      console.log(`👤 Usuario reconectado: ${user.username} (Total registrados: ${registeredUsersSet.size})`);
-    }
-    
-    return user;
+    // Si no hay token o es inválido, crear usuario anónimo en desarrollo
+    const anonId = `anon_${uuidv4()}`;
+    registeredUsersSet.add(anonId);
+    const anonUser = {
+      id: anonId,
+      username: `Anon_${anonId.substring(0,6)}`,
+      avatar: `AN:#CCCCCC`,
+      isOnline: true,
+      socketId: socket.id
+    };
+    simpleBD.users.push(anonUser);
+    console.log(`👤 Conexión anónima creada: ${anonUser.username} (Total registrados: ${registeredUsersSet.size})`);
+    return anonUser;
   } catch (error) {
-    console.log(`❌ Error auth: ${error.message}`);
-    throw new Error('Token inválido');
+    console.log(`❌ Error auth inesperado: ${error.message}`);
+    // En caso extremo, permitir conexión anónima
+    const anonId = `anon_${uuidv4()}`;
+    registeredUsersSet.add(anonId);
+    const anonUser = {
+      id: anonId,
+      username: `Anon_${anonId.substring(0,6)}`,
+      avatar: `AN:#CCCCCC`,
+      isOnline: true,
+      socketId: socket.id
+    };
+    simpleBD.users.push(anonUser);
+    return anonUser;
   }
 };
 
@@ -556,6 +592,10 @@ const handleSocketConnection = async (socket, io) => {
         expiresAt: Date.now() + AUTO_REMOVE_MS
       };
 
+      // Initialize confirmation counters
+      markerData.confirms = 0;
+      markerData.denies = 0;
+
       // Normalized lower-case tipo for later checks
       const tipoLower = (normalizedTipo || '').toString().toLowerCase();
 
@@ -631,8 +671,32 @@ const handleSocketConnection = async (socket, io) => {
         }
 
         // Enviar a todos los usuarios conectados (incluyendo el que lo creó)
-        socket.broadcast.emit('marker_added', markerData);
-        socket.emit('marker_confirmed', markerData);
+        try {
+          const publicMarker = {
+            id: markerId,
+            userId: markerData.userId,
+            username: markerData.username,
+            latitude: markerData.latitude,
+            longitude: markerData.longitude,
+            tipoReporte: markerData.tipoReporte,
+            timestamp: markerData.timestamp || Date.now(),
+            expiresAt: markerData.expiresAt || ((markerData.timestamp || Date.now()) + AUTO_REMOVE_MS),
+            confirms: markerData.confirms || 0,
+            denies: markerData.denies || 0
+          };
+          console.log('📡 Emitting marker_added (restore):', JSON.stringify(publicMarker));
+          // Prefer module-wide _ioInstance if available
+          try {
+            const emitter = _ioInstance || io;
+            emitter && emitter.emit && emitter.emit('marker_added', publicMarker);
+          } catch (emitErr) {
+            io.emit('marker_added', publicMarker);
+          }
+        } catch (e) {
+          // Fallback: broadcast original marker data
+          socket.broadcast.emit('marker_added', markerData);
+          socket.emit('marker_added', markerData);
+        }
         
         console.log(`✅ Marcador ${markerId} guardado en BD`);
         
@@ -756,7 +820,8 @@ const handleSocketConnection = async (socket, io) => {
           longitude: marker.longitude,
           tipoReporte: marker.tipo_reporte,
           // Preferir valor en ms calculado por la query; fallback a parse
-          timestamp: marker.created_at_ms || new Date(marker.created_at).getTime()
+          timestamp: marker.created_at_ms || new Date(marker.created_at).getTime(),
+          expiresAt: (marker.created_at_ms || new Date(marker.created_at).getTime()) + AUTO_REMOVE_MS
         }));
         
         socket.emit('existing_markers', formattedMarkers);
@@ -805,5 +870,59 @@ const handleSocketConnection = async (socket, io) => {
 
 module.exports = {
   handleSocketConnection,
-  connectedUsers
+  connectedUsers,
+  setIoInstance,
+  scheduleExistingMarkers,
+  confirmMarkerByUser,
+  denyMarkerByUser
 };
+
+// Exponer funciones para llamadas REST (confirm / deny desde HTTP)
+async function confirmMarkerByUser(markerId, userId) {
+  try {
+    if (!markerId) return { success: false, error: 'markerId missing' };
+    const marker = activeMarkers.get(markerId);
+    if (!marker) return { success: false, error: 'Marker not found' };
+    marker.confirms = (marker.confirms || 0) + 1;
+    activeMarkers.set(markerId, marker);
+    try {
+      const emitter = _ioInstance || null;
+      if (emitter && emitter.emit) {
+        emitter.emit('marker_confirmed', {
+          markerId,
+          userId,
+          confirms: marker.confirms || 0,
+          denies: marker.denies || 0
+        });
+      }
+    } catch (e) { console.warn('Emit confirm error:', e.message || e); }
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message || e };
+  }
+}
+
+async function denyMarkerByUser(markerId, userId) {
+  try {
+    if (!markerId) return { success: false, error: 'markerId missing' };
+    const marker = activeMarkers.get(markerId);
+    if (!marker) return { success: false, error: 'Marker not found' };
+    marker.denies = (marker.denies || 0) + 1;
+    activeMarkers.set(markerId, marker);
+    try {
+      const emitter = _ioInstance || null;
+      if (emitter && emitter.emit) {
+        // reuse 'marker_updated' to notify clients of new denies count
+        emitter.emit('marker_updated', {
+          markerId,
+          userId,
+          confirms: marker.confirms || 0,
+          denies: marker.denies || 0
+        });
+      }
+    } catch (e) { console.warn('Emit deny error:', e.message || e); }
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message || e };
+  }
+}

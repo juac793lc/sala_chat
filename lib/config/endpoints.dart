@@ -1,29 +1,16 @@
+// 🟢 Build actualizado: endpoints.dart ejecutando versión 12-oct-2025
 // Generated config: toggle between local and remote backend for easy testing.
 // Set `useLocal = true` for local dev (http://localhost:3001)
 // Set `useLocal = false` to point to the production/deployed backend.
 
 class Endpoints {
-  // Puedes sobreescribir si quieres usar local o remoto en build-time:
-  // --dart-define=USE_LOCAL=true  (o false)
-  static final bool useLocal = const String.fromEnvironment('USE_LOCAL', defaultValue: 'true') == 'true';
+  // During development set useLocal = true to point Flutter at your local
+  // backend (http://localhost:3001). Set to false to use deployed backend.
+  static const bool useLocal = false; // toggle for quick local testing (false -> production)
+  static const String _prod = 'https://notimapa-production.up.railway.app';
+  static const String _local = 'http://localhost:3001';
 
-  // URL local del backend (desarrollo)
-  static const String localBase = 'http://localhost:3001';
-
-  // URL remota por defecto (ajusta a la URL que Railway te dio)
-  static const String remoteBase = 'https://sala-chat-backend-production.up.railway.app';
-
-  // Prioridad máxima: API_BASE pasada por --dart-define
-  static String? get _envBase {
-    const apiBase = String.fromEnvironment('API_BASE', defaultValue: '');
-    return apiBase.isNotEmpty ? apiBase : null;
-  }
-
-  static String get base {
-    final env = _envBase;
-    if (env != null && env.isNotEmpty) return env;
-    return useLocal ? localBase : remoteBase;
-  }
+  static String get base => useLocal ? _local : _prod;
 
   // Rutas de API
   static String get apiAuth => '$base/api/auth';
@@ -31,7 +18,8 @@ class Endpoints {
   static String get apiMedia => '$base/api/media';
 
   // URL para sockets (sin path)
-  static String get socketUrl => base.replaceFirst(RegExp(r"^http"), 'ws');
+  // Socket URL: for local dev use http but socket_service will adjust
+  static String get socketUrl => base.replaceFirst(RegExp(r"^http"), 'wss');
 
   // Endpoint para obtener VAPID public key (si usas push)
   static String get vapidKey => '$base/api/push/vapidPublicKey';

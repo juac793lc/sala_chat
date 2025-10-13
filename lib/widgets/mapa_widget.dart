@@ -39,8 +39,7 @@ class _MapaWidgetState extends State<MapaWidget> {
   @override
   void initState() {
     super.initState();
-    _socketService = SocketService.instance;
-    _loadCurrentUser();
+  _socketService = SocketService.instance;
     // Obtener ubicación automáticamente al abrir el mapa (solo para centrar)
     _getCurrentLocationSilent();
     // Configurar listeners para marcadores compartidos
@@ -52,53 +51,93 @@ class _MapaWidgetState extends State<MapaWidget> {
   @override
   void dispose() {
     _removeSocketListeners();
+    try { SocketService.instance.off('connected', () {}); } catch (_) {}
     _timeUpdateTimer?.cancel();
     super.dispose();
   }
 
   // Configurar listeners de socket para marcadores
   void _setupSocketListeners() {
-    _socketService.socket?.on('marker_added', (data) {
-      if (mounted) {
-        _addSharedMarker(data);
-      }
+    // Usar el mecanismo de callbacks centralizado del SocketService para
+    // que los listeners sobrevivan a reconexiones y se registren una vez.
+    SocketService.instance.on('marker_added', (data) {
+      if (mounted) _addSharedMarker(data);
     });
-    
-    _socketService.socket?.on('marker_removed', (data) {
-      if (mounted) {
-        _removeSharedMarker(data['markerId']);
-      }
+
+    SocketService.instance.on('marker_removed', (data) {
+      if (mounted) _removeSharedMarker(data['markerId']);
     });
-    
-    _socketService.socket?.on('marker_confirmed', (data) {
-      if (mounted) {
-        _addSharedMarker(data);
+
+    SocketService.instance.on('marker_confirmed', (data) {
+      // Actualizar contadores cuando recibimos confirmaciones (no re-add)
+      try {
+        debugPrint('marker_confirmed recibido: $data');
+        if (data is Map) {
+          final id = data['id'] ?? data['markerId'];
+          if (id != null && _markerData.containsKey(id)) {
+            final entry = _markerData[id]!;
+            entry['confirms'] = data['confirms'] ?? entry['confirms'] ?? 0;
+            entry['denies'] = data['denies'] ?? entry['denies'] ?? 0;
+            setState(() {});
+          }
+        }
+      } catch (e) {
+        debugPrint('Error procesando marker_confirmed: $e');
       }
     });
 
-    // Listener para recibir marcadores existentes
-    _socketService.socket?.on('existing_markers', (data) {
-      if (mounted && data is List) {
-        _loadExistingMarkers(data);
+    SocketService.instance.on('existing_markers', (data) {
+      if (mounted && data is List) _loadExistingMarkers(data);
+    });
+
+    SocketService.instance.on('marker_auto_removed', (data) {
+      if (!mounted) return;
+      _removeSharedMarker(data['markerId']);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(data['message'] ?? 'Marcador removido automaticamente'),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    });
+
+    // Actualizaciones de conteos (confirms/denies)
+    SocketService.instance.on('marker_updated', (data) {
+      try {
+        debugPrint('marker_updated recibido: $data');
+        if (data is Map) {
+          final id = data['id'] ?? data['markerId'];
+          if (id != null && _markerData.containsKey(id)) {
+            final entry = _markerData[id]!;
+            entry['confirms'] = data['confirms'] ?? entry['confirms'] ?? 0;
+            entry['denies'] = data['denies'] ?? entry['denies'] ?? 0;
+            setState(() {});
+          }
+        }
+      } catch (e) {
+        debugPrint('Error procesando marker_updated: $e');
       }
     });
 
-    // Evento para auto-eliminación de estrellas
-    _socketService.socket?.on('marker_auto_removed', (data) {
-      if (mounted) {
-        _removeSharedMarker(data['markerId']);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(data['message'] ?? 'Marcador eliminado automáticamente'),
-            backgroundColor: Colors.orange,
-            duration: const Duration(seconds: 3),
-          ),
-        );
+    // Pedir marcadores existentes ahora si ya estamos conectados;
+    // si no, pediremos al reconectarnos (SocketService emite 'connected').
+    void _onConnected(dynamic _) {
+      try {
+        debugPrint('SocketService conectado -> solicitando existing_markers');
+        SocketService.instance.emit('request_existing_markers', {});
+      } catch (e) {
+        debugPrint('Error emitiendo request_existing_markers: $e');
       }
-    });
+      // Una sola vez
+      try { SocketService.instance.off('connected', _onConnected); } catch (_) {}
+    }
 
-    // Solicitar marcadores existentes
-    _socketService.socket?.emit('request_existing_markers');
+    if (SocketService.instance.isConnected) {
+      SocketService.instance.emit('request_existing_markers', {});
+    } else {
+      SocketService.instance.on('connected', _onConnected);
+    }
   }
 
   // Remover listeners de socket
@@ -176,34 +215,61 @@ class _MapaWidgetState extends State<MapaWidget> {
       point: LatLng(data['latitude'], data['longitude']),
       width: markerSize,
       height: markerSize,
-      child: GestureDetector(
-        onTap: () {
-          try { _maybeNotifyTelegram(data); } catch (e) { debugPrint('notify err: $e'); }
-          _showSharedMarkerInfo(data, tipoInfo);
-        },
-        child: Container(
-          decoration: BoxDecoration(
-            color: tipoInfo.color,
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: Colors.white, 
-              width: borderWidth
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.1),
-                blurRadius: 1,
-                offset: const Offset(0, 0.5),
+        child: GestureDetector(
+          onTap: () {
+            // No notificar al tocar la estrella para evitar reenvíos.
+            _showSharedMarkerInfo(data, tipoInfo);
+          },
+          child: Container(
+            decoration: BoxDecoration(
+              color: tipoInfo.color,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Colors.white,
+                width: borderWidth,
               ),
-            ],
-          ),
-          child: Icon(
-            tipoInfo.icono,
-            color: Colors.white,
-            size: iconSize,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 1,
+                  offset: const Offset(0, 0.5),
+                ),
+              ],
+            ),
+            // Mostrar icono y, si es una estrella/"interes", un pequeño badge con minutos restantes
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  tipoInfo.icono,
+                  color: Colors.white,
+                  size: iconSize,
+                ),
+                // Mostrar badge para tipos 'interes' o cuando el backend envía 'policia' en data
+                if (tipoReporte == TipoReporte.interes || (data['tipoReporte']?.toString() == 'policia')) ...[
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      // Mostrar minutos restantes como "Xm" o "Expirado"
+                      (_minutesRemaining(data) > 0) ? '${_minutesRemaining(data)}m' : 'Exp',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
         ),
-      ),
     );
     
     _sharedMarkers.add(marker);
@@ -351,7 +417,7 @@ class _MapaWidgetState extends State<MapaWidget> {
         setState(() {
           _currentCenter = newLocation;
           // SÍ agregar marcador cuando el usuario hace clic manualmente
-          _addMarker(newLocation, '📍 Mi ubicación (±${position.accuracy.round()}m)', Colors.green);
+            _addMarker(newLocation, '📍 Minha localização (±${position.accuracy.round()}m)', Colors.green);
         });
         
         _mapController.move(newLocation, zoom);
@@ -449,6 +515,7 @@ class _MapaWidgetState extends State<MapaWidget> {
 
   // Cargar usuario actual (id) para usar en llamadas al backend
   String? _currentUserId;
+  // ignore: unused_element
   void _loadCurrentUser() async {
     try {
       final cached = AuthService.getCachedUser();
@@ -465,27 +532,7 @@ class _MapaWidgetState extends State<MapaWidget> {
     }
   }
 
-  // Enviar notificación a Telegram cuando se clicka una estrella
-  void _maybeNotifyTelegram(Map<String, dynamic> data) {
-    final tipo = data['tipoReporte'];
-    if (tipo != 'interes' && tipo != 'policia') return; // solo estrellas/compat
-
-  final lat = data['latitude'];
-  final lon = data['longitude'];
-  final author = data['username'] ?? 'Usuario';
-  // Calcular distancia desde la posición actual ( _currentCenter siempre tiene un valor por diseño )
-  int distanceMeters = 0;
-  try {
-    final d = Geolocator.distanceBetween(_currentCenter.latitude, _currentCenter.longitude, lat, lon);
-    distanceMeters = d.round();
-  } catch (e) {
-    debugPrint('Error calculando distancia: $e');
-  }
-
-  // Construir mensaje con columnas e iconos
-  final text = _buildTelegramStarMessage(author, distanceMeters);
-  _sendTelegramNotify(text);
-  }
+  // (Se eliminó el envío automático de Telegram al tocar una estrella para evitar reenvíos)
 
   Future<void> _sendTelegramNotify(String text, {bool broadcast = true}) async {
     if (!mounted) return;
@@ -496,14 +543,14 @@ class _MapaWidgetState extends State<MapaWidget> {
         final body = json.encode({'text': text});
         final resp = await http.post(uri, headers: {'Content-Type': 'application/json'}, body: body).timeout(const Duration(seconds: 8));
 
-        if (resp.statusCode == 200) {
+          if (resp.statusCode == 200) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Notificación enviada a Telegram (grupo)'), backgroundColor: Colors.green),
+            const SnackBar(content: Text('Notificação enviada para o Telegram (grupo)'), backgroundColor: Colors.green),
           );
         } else {
           debugPrint('Error notificando Telegram (broadcast): ${resp.statusCode} ${resp.body}');
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Error enviando notificación'), backgroundColor: Colors.red),
+            const SnackBar(content: Text('Erro ao enviar notificação'), backgroundColor: Colors.red),
           );
         }
         return;
@@ -513,7 +560,7 @@ class _MapaWidgetState extends State<MapaWidget> {
       final userId = _currentUserId;
       if (userId == null) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No hay usuario autenticado para notificar'), backgroundColor: Colors.orange),
+          const SnackBar(content: Text('Nenhum usuário autenticado para notificar'), backgroundColor: Colors.orange),
         );
         return;
       }
@@ -523,19 +570,19 @@ class _MapaWidgetState extends State<MapaWidget> {
       final resp = await http.post(uri, headers: {'Content-Type': 'application/json'}, body: body).timeout(const Duration(seconds: 8));
       if (resp.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Notificación enviada a Telegram'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('Notificação enviada para o Telegram'), backgroundColor: Colors.green),
         );
       } else {
         debugPrint('Error notificando Telegram: ${resp.statusCode} ${resp.body}');
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Error enviando notificación'), backgroundColor: Colors.red),
+          const SnackBar(content: Text('Erro ao enviar notificação'), backgroundColor: Colors.red),
         );
       }
     } catch (e) {
       debugPrint('Excepción notificando Telegram: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Error enviando notificación (timeout o red)'), backgroundColor: Colors.red),
+          const SnackBar(content: Text('Erro ao enviar notificação (timeout ou rede)'), backgroundColor: Colors.red),
         );
       }
     }
@@ -557,7 +604,8 @@ class _MapaWidgetState extends State<MapaWidget> {
   // Mostrar información de marcador compartido
   void _showSharedMarkerInfo(Map<String, dynamic> data, TipoReporteInfo tipoInfo) {
   final bool isEstrella = data['tipoReporte'] == 'interes' || data['tipoReporte'] == 'policia'; // compat
-    
+    final confirms = (data['confirms'] ?? _markerData[data['id']]?['confirms']) ?? 0;
+    final denies = (data['denies'] ?? _markerData[data['id']]?['denies']) ?? 0;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -572,41 +620,100 @@ class _MapaWidgetState extends State<MapaWidget> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Reportado por: ${data['username']}'),
+            if (isEstrella)
+              Row(
+                children: const [
+                  Icon(Icons.warning, color: Colors.red, size: 18),
+                  SizedBox(width: 6),
+                  Text('Alerta', style: TextStyle(fontWeight: FontWeight.bold)),
+                ],
+              )
+            else
+              const SizedBox.shrink(),
             const SizedBox(height: 8),
             Text(tipoInfo.descripcion),
-            // Solo mostrar tiempo en estrella (dinámico)
             if (isEstrella) ...[
               const SizedBox(height: 8),
-              Text(
-                'Hace ${_getTimeAgo(data['timestamp'])}',
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey,
-                ),
+              Builder(builder: (_) {
+                final minsLeft = _minutesRemaining(data);
+                final minutesText = minsLeft > 0 ? '$minsLeft min restantes' : 'Expirado';
+                return Text(
+                  minutesText,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey,
+                  ),
+                );
+              }),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: () async {
+                      try {
+                        await _confirmMarkerHttp(data['id']);
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Confirmado (via REST)'), backgroundColor: Colors.green));
+                      } catch (e) {
+                        debugPrint('Error confirmando via HTTP: $e');
+                        try {
+                          SocketService.instance.emit('confirm_marker', {'markerId': data['id']});
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Confirmado (via Socket)'), backgroundColor: Colors.green));
+                        } catch (e2) {
+                          debugPrint('Error confirm via socket fallback: $e2');
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo confirmar (sin conexión)'), backgroundColor: Colors.orange));
+                        }
+                      }
+                      Navigator.pop(context);
+                    },
+                    icon: const Icon(Icons.check),
+                    label: Text('Confirmar ($confirms)'),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    onPressed: () async {
+                      try {
+                        await _denyMarkerHttp(data['id']);
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Negado (via REST)'), backgroundColor: Colors.red));
+                      } catch (e) {
+                        debugPrint('Error negando via HTTP: $e');
+                        try {
+                          SocketService.instance.emit('deny_marker', {'markerId': data['id']});
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Negado (via Socket)'), backgroundColor: Colors.red));
+                        } catch (e2) {
+                          debugPrint('Error deny via socket fallback: $e2');
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo negar (sin conexión)'), backgroundColor: Colors.orange));
+                        }
+                      }
+                      Navigator.pop(context);
+                    },
+                    icon: const Icon(Icons.close),
+                    label: Text('Negar ($denies)'),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                  ),
+                ],
               ),
             ],
           ],
         ),
         actions: [
-          // Opción de eliminar para todos los marcadores
           TextButton(
             onPressed: () {
               Navigator.pop(context);
               _removeMarkerFromServer(data['id']);
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('${tipoInfo.nombre} eliminado'),
+                  content: Text('${tipoInfo.nombre} removido'),
                   backgroundColor: Colors.orange,
                   duration: const Duration(seconds: 2),
                 ),
               );
             },
-            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+            child: const Text('Remover', style: TextStyle(color: Colors.red)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cerrar'),
+            child: const Text('Fechar'),
           ),
         ],
       ),
@@ -650,7 +757,7 @@ class _MapaWidgetState extends State<MapaWidget> {
 
   // Función para eliminar marcador del servidor
   void _removeMarkerFromServer(String markerId) {
-    _socketService.socket?.emit('remove_marker', {
+    SocketService.instance.emit('remove_marker', {
       'markerId': markerId,
     });
     
@@ -658,7 +765,27 @@ class _MapaWidgetState extends State<MapaWidget> {
     _removeSharedMarker(markerId);
   }
 
+  // HTTP helpers para confirmar/denegar via REST (fallback cuando WS falla)
+  Future<void> _confirmMarkerHttp(String markerId) async {
+    final uri = Uri.parse('${Endpoints.base}/api/markers/confirm');
+    final headers = await AuthService.getHeaders();
+    final resp = await http.post(uri, headers: headers, body: json.encode({'markerId': markerId})).timeout(const Duration(seconds: 8));
+    if (resp.statusCode != 200) {
+      throw Exception('HTTP confirm failed: ${resp.statusCode} ${resp.body}');
+    }
+  }
+
+  Future<void> _denyMarkerHttp(String markerId) async {
+    final uri = Uri.parse('${Endpoints.base}/api/markers/deny');
+    final headers = await AuthService.getHeaders();
+    final resp = await http.post(uri, headers: headers, body: json.encode({'markerId': markerId})).timeout(const Duration(seconds: 8));
+    if (resp.statusCode != 200) {
+      throw Exception('HTTP deny failed: ${resp.statusCode} ${resp.body}');
+    }
+  }
+
   // Función auxiliar para mostrar tiempo transcurrido
+  // ignore: unused_element
   String _getTimeAgo(int timestamp) {
     final now = DateTime.now().millisecondsSinceEpoch;
     final diff = now - timestamp;
@@ -682,39 +809,62 @@ class _MapaWidgetState extends State<MapaWidget> {
     }
   }
 
-  // Función para agregar marcadores de reporte
+  // Devuelve minutos transcurridos desde la creación del marcador, en el rango 1..50.
+  // Si no hay información de tiempo válida retorna 0 (indefinido/expirado).
+  int _minutesRemaining(Map<String, dynamic> data) {
+    try {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      const autoRemoveMs = 50 * 60 * 1000; // 50 minutos
+
+      int timestamp = 0;
+      if (data.containsKey('timestamp') && data['timestamp'] is int) {
+        timestamp = data['timestamp'] as int;
+        // Normalizar segundos -> milisegundos si fuera necesario
+        if (timestamp < 1000000000000) {
+          timestamp = timestamp * 1000;
+        }
+      } else if (data.containsKey('expiresAt') && data['expiresAt'] is int) {
+        final expiresAt = data['expiresAt'] as int;
+        timestamp = expiresAt - autoRemoveMs;
+      } else {
+        return 0; // sin datos temporales
+      }
+
+      final elapsedMs = now - timestamp;
+      if (elapsedMs < 0) return 0;
+      final minutes = (elapsedMs / (1000 * 60)).floor();
+      if (minutes < 1) return 1; // mostrar 1 minuto al crearse
+      if (minutes > 50) return 50; // cap a 50
+      return minutes;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  // Función para agregar un marcador local simple (seguro y que compila)
   void _addMarker(LatLng position, String label, Color color) {
+    final markerId = 'local_ ${_markerCounter++}';
     setState(() {
       _markers.add(
         Marker(
+          key: Key(markerId),
           point: position,
-          width: 80,
-          height: 80,
+          width: 40,
+          height: 40,
           child: GestureDetector(
             onTap: () => _showMarkerInfo(label),
-            child: Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    label,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                Icon(
-                  Icons.location_pin,
-                  color: color,
-                  size: 30,
-                ),
-              ],
+            child: Container(
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 1.0),
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 2, offset: const Offset(0, 1)),
+                ],
+              ),
+              child: const Center(
+                child: Icon(Icons.location_pin, color: Colors.white, size: 20),
+              ),
             ),
           ),
         ),
@@ -748,7 +898,7 @@ class _MapaWidgetState extends State<MapaWidget> {
                 border: Border.all(color: Colors.white, width: borderWidth),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.1),
+                    color: Colors.black.withOpacity(0.1),
                     blurRadius: 1,
                     offset: const Offset(0, 0.5),
                   ),
@@ -774,50 +924,161 @@ class _MapaWidgetState extends State<MapaWidget> {
   }
 
   // Función para manejar toque en el mapa
-  void _onMapTap(LatLng position) {
-    if (_tipoSeleccionado != null) {
-      final tipoInfo = TiposReporte.obtenerPorTipo(_tipoSeleccionado!);
-      _addReporteMarker(position, tipoInfo);
-      
-      // Enviar marcador a otros usuarios a través de socket
-      _socketService.socket?.emit('add_marker', {
-        'latitude': position.latitude,
-        'longitude': position.longitude,
-        'tipoReporte': _tipoSeleccionado!.toString().split('.').last,
-      });
+  Future<void> _onMapTap(LatLng position) async {
+  // Si el tap está sobre un marcador existente (compartido o local),
+  // evitamos que el onTap global del mapa cree uno nuevo y envíe notificaciones.
+  // Aumentamos el umbral para robustez contra desplazamientos en la interacción web.
+  const double _tapThresholdMeters = 80.0; // umbral en metros para considerar "tap sobre marcador"
 
-      // Enviar notificación a Telegram si es estrella/interes
       try {
-        if (_tipoSeleccionado == TipoReporte.interes) {
-          final author = 'Usuario';
-          int distanceMeters = 0;
+        // 1) Verificar marcadores locales creados en esta vista (_markers)
+        for (final m in _markers) {
           try {
-            final d = Geolocator.distanceBetween(_currentCenter.latitude, _currentCenter.longitude, position.latitude, position.longitude);
-            distanceMeters = d.round();
-          } catch (e) {
-            debugPrint('Error calculando distancia al crear marcador: $e');
-          }
+            final LatLng mp = m.point;
+            final d = Geolocator.distanceBetween(mp.latitude, mp.longitude, position.latitude, position.longitude);
+            if (d <= _tapThresholdMeters) {
+              // Asumir que el GestureDetector del marcador gestionó el tap; no crear nada ni notificar
+              return;
+            }
+          } catch (_) {}
+        }
 
-          final text = _buildTelegramStarMessage(author, distanceMeters);
-          _sendTelegramNotify(text);
+        // 1b) Verificar marcadores compartidos renderizados (_sharedMarkers)
+        for (final m in _sharedMarkers) {
+          try {
+            final LatLng mp = m.point;
+            final d = Geolocator.distanceBetween(mp.latitude, mp.longitude, position.latitude, position.longitude);
+            if (d <= _tapThresholdMeters) {
+              // Tap sobre marcador compartido: mostrar su info si la tenemos
+              final key = m.key?.toString() ?? '';
+              // Buscar id en key: 'shared_<id>'
+              final match = RegExp(r'shared_(.+)');
+              final mm = match.firstMatch(key);
+              if (mm != null) {
+                final id = mm.group(1);
+                final data = id != null ? _markerData[id] : null;
+                if (data != null) {
+                  final tipoStr = data['tipoReporte'] ?? 'interes';
+                  TipoReporte tipoEnum;
+                  try {
+                    tipoEnum = TipoReporte.values.firstWhere((e) => e.toString() == 'TipoReporte.$tipoStr');
+                  } catch (_) {
+                    tipoEnum = TipoReporte.interes;
+                  }
+                  final tipoInfo = TiposReporte.obtenerPorTipo(tipoEnum);
+                  _showSharedMarkerInfo(data, tipoInfo);
+                }
+              }
+              return;
+            }
+          } catch (_) {}
+        }
+
+        // 2) Verificar marcadores compartidos (datos en _markerData)
+        String? nearestMarkerId;
+        Map<String, dynamic>? nearestData;
+        double nearestDist = double.infinity;
+        for (final entry in _markerData.entries) {
+          try {
+            final lat = entry.value['latitude'];
+            final lng = entry.value['longitude'];
+            if (lat == null || lng == null) continue;
+            final d = Geolocator.distanceBetween(lat as double, lng as double, position.latitude, position.longitude);
+            if (d <= _tapThresholdMeters && d < nearestDist) {
+              nearestDist = d;
+              nearestMarkerId = entry.key;
+              nearestData = entry.value;
+            }
+          } catch (_) {}
+        }
+
+        if (nearestData != null && nearestMarkerId != null) {
+          // Mostrar info del marcador compartido en lugar de crear uno nuevo
+          final tipoStr = nearestData['tipoReporte'] ?? 'interes';
+          TipoReporte tipoEnum;
+          try {
+            tipoEnum = TipoReporte.values.firstWhere((e) => e.toString() == 'TipoReporte.$tipoStr');
+          } catch (_) {
+            tipoEnum = TipoReporte.interes;
+          }
+          final tipoInfo = TiposReporte.obtenerPorTipo(tipoEnum);
+          _showSharedMarkerInfo(nearestData, tipoInfo);
+          return;
         }
       } catch (e) {
-        debugPrint('Error enviando telegram notify on create: $e');
+        debugPrint('Error detecting marker proximity in _onMapTap: $e');
+        // Si falla la detección, seguimos con el flujo normal (se creará un marcador si _tipoSeleccionado != null)
       }
-      
-      // Mostrar confirmación
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${tipoInfo.nombre} reportado y compartido'),
-          backgroundColor: tipoInfo.color,
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    } else {
-      // Mostrar mensaje para seleccionar tipo
+
+      if (_tipoSeleccionado != null) {
+        final tipoInfo = TiposReporte.obtenerPorTipo(_tipoSeleccionado!);
+        _addReporteMarker(position, tipoInfo);
+        
+        // Enviar marcador a otros usuarios a través de SocketService
+        if (!SocketService.instance.isConnected) {
+          // Mostrar feedback claro: no estamos conectados, el marcador no se compartirá
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('No conectado al servidor. Inicia sesión para compartir el marcador.'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 3),
+            ));
+          }
+        } else {
+          SocketService.instance.emit('add_marker', {
+            'latitude': position.latitude,
+            'longitude': position.longitude,
+            'tipoReporte': _tipoSeleccionado!.toString().split('.').last,
+          });
+        }
+        
+        // Enviar notificación a Telegram si es estrella/interes
+        try {
+          if (_tipoSeleccionado == TipoReporte.interes) {
+            final author = 'Usuario';
+            int distanceMeters = 0;
+            try {
+              final d = Geolocator.distanceBetween(_currentCenter.latitude, _currentCenter.longitude, position.latitude, position.longitude);
+              distanceMeters = d.round();
+            } catch (e) {
+              debugPrint('Error calculando distancia al crear marcador: $e');
+            }
+
+            final text = _buildTelegramStarMessage(author, distanceMeters);
+            // Pedir confirmación antes de enviar la notificación para evitar envíos accidentales
+            final shouldSend = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('Enviar notificação'),
+                content: const Text('Deseja enviar uma notificação para o Telegram sobre este alerta?'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Não')),
+                  TextButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Sim')),
+                ],
+              ),
+            ) ?? false;
+
+            if (shouldSend) {
+              _sendTelegramNotify(text);
+            }
+          }
+        } catch (e) {
+          debugPrint('Error enviando telegram notify on create: $e');
+        }
+        
+        // Mostrar confirmación
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${tipoInfo.nombre} reportado y compartido'),
+            backgroundColor: tipoInfo.color,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      } else {
+      // Mostrar mensagem para selecionar tipo
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Selecciona un tipo de reporte primero'),
+          content: Text('Selecione um tipo de relatório primeiro'),
           backgroundColor: Colors.orange,
           duration: Duration(seconds: 2),
         ),
@@ -926,7 +1187,7 @@ class _MapaWidgetState extends State<MapaWidget> {
           if (_isLoading)
             Positioned.fill(
               child: Container(
-                color: Colors.white.withValues(alpha: 0.8),
+                color: Colors.white.withOpacity(0.8),
                 child: const Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,

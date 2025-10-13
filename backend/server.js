@@ -9,7 +9,7 @@ require('dotenv').config();
 
 const authRoutes = require('./src/routes/auth');
 const mediaRoutes = require('./src/routes/media');
-const { handleSocketConnection } = require('./src/controllers/socketController');
+const { handleSocketConnection, setIoInstance } = require('./src/controllers/socketController');
 // Base de datos en memoria existente (usuarios/salas simples)
 const db = require('./src/config/memory_db');
 // Nuevo backend persistente SQLite para media y mensajes
@@ -19,9 +19,10 @@ const telegramPoller = require('./src/services/telegramPoller');
 
 const app = express();
 // Cuando la app corre detrás de un proxy (Railway, Heroku, etc.)
-// permitir que Express confíe en cabeceras como X-Forwarded-For
-// para que middlewares como express-rate-limit funcionen correctamente.
-app.set('trust proxy', true);
+// indicar un valor concreto de 'trust proxy' (1) en vez de `true` para
+// evitar advertencias/errores de seguridad con express-rate-limit.
+// Ver: https://express-rate-limit.github.io/ERR_ERL_PERMISSIVE_TRUST_PROXY/
+app.set('trust proxy', 1);
 const server = http.createServer(app);
 
 // Configuración de Socket.IO con CORS
@@ -41,23 +42,37 @@ app.use(helmet({
   contentSecurityPolicy: false, // simplificar en dev
   originAgentCluster: false,
 }));
-app.use(cors({
-  origin: true, // Permitir todos los orígenes para desarrollo
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  credentials: true,
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
-  optionsSuccessStatus: 200
-}));
-
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: (process.env.RATE_LIMIT_WINDOW || 15) * 60 * 1000, // 15 minutos
-  max: process.env.RATE_LIMIT_MAX_REQUESTS || 100,
-  message: {
-    error: 'Demasiadas peticiones, intenta de nuevo más tarde'
+// Custom CORS reflector middleware
+// Refleja el Origin recibido para que el navegador reciba Access-Control-Allow-Origin
+// igual al Origin de la petición (útil en desarrollo/local). En producción es
+// preferible usar una lista blanca de orígenes.
+app.use((req, res, next) => {
+  const origin = req.get('Origin') || req.get('origin') || '*';
+  // Si el origen viene vacío (requests directas desde curl/servers), usamos '*'
+  res.header('Access-Control-Allow-Origin', origin);
+  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  // Forra OPTIONS preflight responses
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
   }
+  next();
 });
-app.use('/api/', limiter);
+
+// Rate limiting (se puede desactivar en despliegues temporales mediante SKIP_RATE_LIMIT=true)
+if (process.env.SKIP_RATE_LIMIT !== 'true') {
+  const limiter = rateLimit({
+    windowMs: (process.env.RATE_LIMIT_WINDOW || 15) * 60 * 1000, // 15 minutos
+    max: process.env.RATE_LIMIT_MAX_REQUESTS || 100,
+    message: {
+      error: 'Demasiadas peticiones, intenta de nuevo más tarde'
+    }
+  });
+  app.use('/api/', limiter);
+} else {
+  console.warn('⚠️ SKIP_RATE_LIMIT=true -> express-rate-limit deshabilitado temporalmente');
+}
 
 // Middleware de logging para debug
 app.use((req, res, next) => {
@@ -131,6 +146,62 @@ app.use('/api/push', require('./src/routes/push'));
 // Rutas para integración con Telegram (notificaciones alternativas)
 app.use('/api/telegram', require('./src/routes/telegram'));
 
+// --- Rutas REST auxiliares para markers (confirm/deny) ---
+const { confirmMarkerByUser, denyMarkerByUser } = require('./src/controllers/socketController');
+
+// A route to confirm a marker via HTTP POST
+app.post('/api/markers/confirm', async (req, res) => {
+  try {
+    const { markerId } = req.body || {};
+    // If auth header with token exists, try to decode userId, otherwise use anonymous id
+    let userId = 'http_anon';
+    try {
+      const authHeader = req.header('Authorization')?.replace('Bearer ', '');
+      if (authHeader) {
+        const jwt = require('jsonwebtoken');
+        const { getJwtSecret } = require('./src/middleware/auth');
+        const decoded = jwt.verify(authHeader, getJwtSecret());
+        userId = decoded.userId || userId;
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    const result = await confirmMarkerByUser(markerId, userId);
+    if (result && result.success) return res.json({ success: true });
+    return res.status(400).json({ success: false, error: result && result.error ? result.error : 'No se pudo confirmar' });
+  } catch (e) {
+    console.error('Error HTTP confirm marker:', e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// A route to deny a marker via HTTP POST
+app.post('/api/markers/deny', async (req, res) => {
+  try {
+    const { markerId } = req.body || {};
+    let userId = 'http_anon';
+    try {
+      const authHeader = req.header('Authorization')?.replace('Bearer ', '');
+      if (authHeader) {
+        const jwt = require('jsonwebtoken');
+        const { getJwtSecret } = require('./src/middleware/auth');
+        const decoded = jwt.verify(authHeader, getJwtSecret());
+        userId = decoded.userId || userId;
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    const result = await denyMarkerByUser(markerId, userId);
+    if (result && result.success) return res.json({ success: true });
+    return res.status(400).json({ success: false, error: result && result.error ? result.error : 'No se pudo negar' });
+  } catch (e) {
+    console.error('Error HTTP deny marker:', e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
 // Ruta de health check
 app.get('/health', (req, res) => {
   res.json({ 
@@ -146,6 +217,13 @@ io.on('connection', (socket) => {
   console.log(`👤 Usuario conectado: ${socket.id}`);
   handleSocketConnection(socket, io);
 });
+
+  // Exponer la instancia de io al controller para que rutas REST puedan emitir eventos
+  try {
+    setIoInstance(io);
+  } catch (e) {
+    console.warn('No se pudo setIoInstance en socketController:', e.message || e);
+  }
 
 // Middleware de manejo de errores
 app.use((err, req, res, next) => {
@@ -165,6 +243,15 @@ const PORT = process.env.PORT || 3001;
 
 // Inicializar SQLite antes de arrancar el servidor
 sqlite.ensureInit().then(() => {
+  // Añadir listener para detectar intentos de 'upgrade' (handshake WebSocket)
+  server.on('upgrade', (req, socket, head) => {
+    try {
+      console.log('🔄 HTTP upgrade request:', req.method, req.url, 'Origin:', req.headers.origin || req.headers.origin);
+    } catch (e) {
+      console.log('🔄 HTTP upgrade request (parse error)');
+    }
+  });
+
   server.listen(PORT, () => {
     console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
     console.log(`🔗 Socket.IO habilitado para chat en tiempo real`);

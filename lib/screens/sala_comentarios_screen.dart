@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/contenido_multimedia.dart';
 import '../models/comentario.dart';
 import '../widgets/comentario_widget.dart';
-import '../widgets/input_comentario_widget.dart';
+import '../widgets/input_multimedia_widget.dart';
 import '../services/history_service.dart';
 import '../services/media_storage_service.dart';
 import '../services/socket_service.dart';
@@ -423,7 +423,7 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
               borderRadius: BorderRadius.circular(12),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.1),
+                  color: Colors.black.withOpacity(0.1),
                   blurRadius: 8,
                   offset: const Offset(0, 2),
                 ),
@@ -480,28 +480,55 @@ class _SalaComentariosScreenState extends State<SalaComentariosScreen> {
                     },
                   ),
           ),
-          // Input para nuevo comentario
+          // Zona de acciones multimedia (solo foto/video). Hemos eliminado
+          // la entrada de texto y el control de audio para simplificar la UI
+          // tal como indicó el usuario. Usamos InputMultimediaWidget para
+          // permitir subir imágenes/videos al room.
           Container(
             padding: EdgeInsets.only(
               bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-              top: 16,
-              left: 16,
-              right: 16,
+              top: 12,
+              left: 12,
+              right: 12,
             ),
             decoration: BoxDecoration(
               color: Colors.white,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.05),
+                  color: Colors.black.withOpacity(0.05),
                   blurRadius: 10,
                   offset: const Offset(0, -5),
                 ),
               ],
             ),
-            child: InputComentarioWidget(
-              esAudio: widget.esAudio,
-              onComentarioAgregado: _agregarComentario,
-              contenidoId: widget.contenido.id,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                // Información breve del tipo de sala
+                Text(
+                  widget.esAudio ? 'Sala de audio (solo multimedia)' : 'Sala de texto (solo multimedia)',
+                  style: const TextStyle(fontSize: 14, color: Colors.grey),
+                ),
+                // Botón flotante para subir contenido multimedia
+                InputMultimediaWidget(
+                  roomId: widget.contenido.id,
+                  onContenidoAgregado: (contenido) {
+                    // Mappear ContenidoMultimedia a Comentario y agregarlo
+                    final comentario = Comentario(
+                      id: contenido.id,
+                      contenidoId: widget.contenido.id,
+                      autorId: contenido.autorId,
+                      autorNombre: contenido.autorNombre,
+                      tipo: contenido.tipo == TipoContenido.video ? TipoComentario.video : TipoComentario.imagen,
+                      contenido: contenido.url,
+                      mediaId: contenido.id,
+                      mediaUrl: contenido.url,
+                      fechaCreacion: contenido.fechaCreacion,
+                    );
+                    _agregarComentario(comentario);
+                  },
+                ),
+              ],
             ),
           ),
         ],
