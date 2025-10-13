@@ -34,6 +34,7 @@ class SocketService {
 
   // Conectar al servidor (idempotente)
   Future<bool> connect() async {
+  debugPrint('🟢 Build actualizado: socket_service.dart ejecutando versión 12-oct-2025');
     if (_isConnected && _socket != null) {
       debugPrint('♻️ Reuso de conexión socket existente');
       return true;
@@ -51,17 +52,42 @@ class SocketService {
         debugPrint('🔑 Conectando con token: ${token.substring(0, 20)}...');
       }
 
-      // Configurar socket (solo crear si no existe)
-  _socket = io.io(
-    Endpoints.base,
-    io.OptionBuilder()
-    // Forzar solo 'websocket' evita que el cliente intente long-polling
-    // (muchos proxies/edge layers bloquean o reescriben endpoints de polling).
-    .setTransports(['websocket'])
-    .disableAutoConnect() // desactivar auto connect para controlar manualmente
-    .setAuth(token != null ? {'token': token} : {})
-    .build(),
-  );
+
+
+      // Selección robusta de URL de socket:
+      // - Si base contiene 'localhost', usar http://localhost:3001
+      // - Si no, usar https://notimapa-production.up.railway.app
+      String socketUrl;
+      if (Endpoints.base.contains('localhost')) {
+        socketUrl = 'http://localhost:3001';
+      } else {
+        socketUrl = 'https://notimapa-production.up.railway.app';
+      }
+      debugPrint('🌐 Conectando socket a: $socketUrl');
+
+      final rawOptions = io.OptionBuilder()
+        .setTransports(['polling', 'websocket'])
+        .disableAutoConnect()
+        .setAuth(token != null ? {'token': token} : {})
+        .build();
+
+      final Map<String, dynamic> options = Map<String, dynamic>.from(rawOptions);
+      // No modificar path ni agregar /socket.io a la URL, dejar default
+      if (options.containsKey('port')) {
+        final p = options['port'];
+        if (p == 0 || p == '0' || p == 0.0) {
+          options.remove('port');
+        }
+      }
+
+      debugPrint('🔧 Socket options finales: $options');
+
+      // Usar solo host:puerto como URL, sin /socket.io
+      final connectUrl = socketUrl;
+      _socket = io.io(
+        connectUrl,
+        options,
+      );
 
       // Evitar registrar eventos múltiples
       if (!_eventsRegistrados) {

@@ -39,8 +39,7 @@ class _MapaWidgetState extends State<MapaWidget> {
   @override
   void initState() {
     super.initState();
-    _socketService = SocketService.instance;
-                  final author = ''; // Removed 'Usuario'
+  _socketService = SocketService.instance;
     // Obtener ubicación automáticamente al abrir el mapa (solo para centrar)
     _getCurrentLocationSilent();
     // Configurar listeners para marcadores compartidos
@@ -70,7 +69,21 @@ class _MapaWidgetState extends State<MapaWidget> {
     });
 
     SocketService.instance.on('marker_confirmed', (data) {
-      if (mounted) _addSharedMarker(data);
+      // Actualizar contadores cuando recibimos confirmaciones (no re-add)
+      try {
+        debugPrint('marker_confirmed recibido: $data');
+        if (data is Map) {
+          final id = data['id'] ?? data['markerId'];
+          if (id != null && _markerData.containsKey(id)) {
+            final entry = _markerData[id]!;
+            entry['confirms'] = data['confirms'] ?? entry['confirms'] ?? 0;
+            entry['denies'] = data['denies'] ?? entry['denies'] ?? 0;
+            setState(() {});
+          }
+        }
+      } catch (e) {
+        debugPrint('Error procesando marker_confirmed: $e');
+      }
     });
 
     SocketService.instance.on('existing_markers', (data) {
@@ -93,13 +106,12 @@ class _MapaWidgetState extends State<MapaWidget> {
     SocketService.instance.on('marker_updated', (data) {
       try {
         debugPrint('marker_updated recibido: $data');
-        if (data is Map && data['id'] != null) {
-          final id = data['id'];
-          final entry = _markerData[id];
-          if (entry != null) {
+        if (data is Map) {
+          final id = data['id'] ?? data['markerId'];
+          if (id != null && _markerData.containsKey(id)) {
+            final entry = _markerData[id]!;
             entry['confirms'] = data['confirms'] ?? entry['confirms'] ?? 0;
             entry['denies'] = data['denies'] ?? entry['denies'] ?? 0;
-            // Regenerar marcador visual para reflejar cambios de contador (si necesario)
             setState(() {});
           }
         }
@@ -204,33 +216,60 @@ class _MapaWidgetState extends State<MapaWidget> {
       width: markerSize,
       height: markerSize,
         child: GestureDetector(
-        onTap: () {
-          // No notificar al tocar la estrella para evitar reenvíos.
-          _showSharedMarkerInfo(data, tipoInfo);
-        },
-        child: Container(
-          decoration: BoxDecoration(
-            color: tipoInfo.color,
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: Colors.white, 
-              width: borderWidth
-            ),
+          onTap: () {
+            // No notificar al tocar la estrella para evitar reenvíos.
+            _showSharedMarkerInfo(data, tipoInfo);
+          },
+          child: Container(
+            decoration: BoxDecoration(
+              color: tipoInfo.color,
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Colors.white,
+                width: borderWidth,
+              ),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(0.1),
-                blurRadius: 1,
-                offset: const Offset(0, 0.5),
-              ),
-            ],
-          ),
-          child: Icon(
-            tipoInfo.icono,
-            color: Colors.white,
-            size: iconSize,
+                  blurRadius: 1,
+                  offset: const Offset(0, 0.5),
+                ),
+              ],
+            ),
+            // Mostrar icono y, si es una estrella/"interes", un pequeño badge con minutos restantes
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  tipoInfo.icono,
+                  color: Colors.white,
+                  size: iconSize,
+                ),
+                // Mostrar badge para tipos 'interes' o cuando el backend envía 'policia' en data
+                if (tipoReporte == TipoReporte.interes || (data['tipoReporte']?.toString() == 'policia')) ...[
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      // Mostrar minutos restantes como "Xm" o "Expirado"
+                      (_minutesRemaining(data) > 0) ? '${_minutesRemaining(data)}m' : 'Exp',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
         ),
-      ),
     );
     
     _sharedMarkers.add(marker);
@@ -476,6 +515,7 @@ class _MapaWidgetState extends State<MapaWidget> {
 
   // Cargar usuario actual (id) para usar en llamadas al backend
   String? _currentUserId;
+  // ignore: unused_element
   void _loadCurrentUser() async {
     try {
       final cached = AuthService.getCachedUser();
@@ -594,20 +634,35 @@ class _MapaWidgetState extends State<MapaWidget> {
             Text(tipoInfo.descripcion),
             if (isEstrella) ...[
               const SizedBox(height: 8),
-              Text(
-                'Há ${_getTimeAgo(data['timestamp'])}',
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey,
-                ),
-              ),
+              Builder(builder: (_) {
+                final minsLeft = _minutesRemaining(data);
+                final minutesText = minsLeft > 0 ? '$minsLeft min restantes' : 'Expirado';
+                return Text(
+                  minutesText,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey,
+                  ),
+                );
+              }),
               const SizedBox(height: 8),
               Row(
                 children: [
                   ElevatedButton.icon(
-                    onPressed: () {
-                      // Confirmar una sola vez por usuario
-                      SocketService.instance.emit('confirm_marker', {'markerId': data['id']});
+                    onPressed: () async {
+                      try {
+                        await _confirmMarkerHttp(data['id']);
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Confirmado (via REST)'), backgroundColor: Colors.green));
+                      } catch (e) {
+                        debugPrint('Error confirmando via HTTP: $e');
+                        try {
+                          SocketService.instance.emit('confirm_marker', {'markerId': data['id']});
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Confirmado (via Socket)'), backgroundColor: Colors.green));
+                        } catch (e2) {
+                          debugPrint('Error confirm via socket fallback: $e2');
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo confirmar (sin conexión)'), backgroundColor: Colors.orange));
+                        }
+                      }
                       Navigator.pop(context);
                     },
                     icon: const Icon(Icons.check),
@@ -616,8 +671,20 @@ class _MapaWidgetState extends State<MapaWidget> {
                   ),
                   const SizedBox(width: 8),
                   ElevatedButton.icon(
-                    onPressed: () {
-                      SocketService.instance.emit('deny_marker', {'markerId': data['id']});
+                    onPressed: () async {
+                      try {
+                        await _denyMarkerHttp(data['id']);
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Negado (via REST)'), backgroundColor: Colors.red));
+                      } catch (e) {
+                        debugPrint('Error negando via HTTP: $e');
+                        try {
+                          SocketService.instance.emit('deny_marker', {'markerId': data['id']});
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Negado (via Socket)'), backgroundColor: Colors.red));
+                        } catch (e2) {
+                          debugPrint('Error deny via socket fallback: $e2');
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo negar (sin conexión)'), backgroundColor: Colors.orange));
+                        }
+                      }
                       Navigator.pop(context);
                     },
                     icon: const Icon(Icons.close),
@@ -698,7 +765,27 @@ class _MapaWidgetState extends State<MapaWidget> {
     _removeSharedMarker(markerId);
   }
 
+  // HTTP helpers para confirmar/denegar via REST (fallback cuando WS falla)
+  Future<void> _confirmMarkerHttp(String markerId) async {
+    final uri = Uri.parse('${Endpoints.base}/api/markers/confirm');
+    final headers = await AuthService.getHeaders();
+    final resp = await http.post(uri, headers: headers, body: json.encode({'markerId': markerId})).timeout(const Duration(seconds: 8));
+    if (resp.statusCode != 200) {
+      throw Exception('HTTP confirm failed: ${resp.statusCode} ${resp.body}');
+    }
+  }
+
+  Future<void> _denyMarkerHttp(String markerId) async {
+    final uri = Uri.parse('${Endpoints.base}/api/markers/deny');
+    final headers = await AuthService.getHeaders();
+    final resp = await http.post(uri, headers: headers, body: json.encode({'markerId': markerId})).timeout(const Duration(seconds: 8));
+    if (resp.statusCode != 200) {
+      throw Exception('HTTP deny failed: ${resp.statusCode} ${resp.body}');
+    }
+  }
+
   // Función auxiliar para mostrar tiempo transcurrido
+  // ignore: unused_element
   String _getTimeAgo(int timestamp) {
     final now = DateTime.now().millisecondsSinceEpoch;
     final diff = now - timestamp;
@@ -722,39 +809,62 @@ class _MapaWidgetState extends State<MapaWidget> {
     }
   }
 
-  // Función para agregar marcadores de reporte
+  // Devuelve minutos transcurridos desde la creación del marcador, en el rango 1..50.
+  // Si no hay información de tiempo válida retorna 0 (indefinido/expirado).
+  int _minutesRemaining(Map<String, dynamic> data) {
+    try {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      const autoRemoveMs = 50 * 60 * 1000; // 50 minutos
+
+      int timestamp = 0;
+      if (data.containsKey('timestamp') && data['timestamp'] is int) {
+        timestamp = data['timestamp'] as int;
+        // Normalizar segundos -> milisegundos si fuera necesario
+        if (timestamp < 1000000000000) {
+          timestamp = timestamp * 1000;
+        }
+      } else if (data.containsKey('expiresAt') && data['expiresAt'] is int) {
+        final expiresAt = data['expiresAt'] as int;
+        timestamp = expiresAt - autoRemoveMs;
+      } else {
+        return 0; // sin datos temporales
+      }
+
+      final elapsedMs = now - timestamp;
+      if (elapsedMs < 0) return 0;
+      final minutes = (elapsedMs / (1000 * 60)).floor();
+      if (minutes < 1) return 1; // mostrar 1 minuto al crearse
+      if (minutes > 50) return 50; // cap a 50
+      return minutes;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  // Función para agregar un marcador local simple (seguro y que compila)
   void _addMarker(LatLng position, String label, Color color) {
+    final markerId = 'local_ ${_markerCounter++}';
     setState(() {
       _markers.add(
         Marker(
+          key: Key(markerId),
           point: position,
-          width: 80,
-          height: 80,
+          width: 40,
+          height: 40,
           child: GestureDetector(
             onTap: () => _showMarkerInfo(label),
-            child: Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    label,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                Icon(
-                  Icons.location_pin,
-                  color: color,
-                  size: 30,
-                ),
-              ],
+            child: Container(
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 1.0),
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 2, offset: const Offset(0, 1)),
+                ],
+              ),
+              child: const Center(
+                child: Icon(Icons.location_pin, color: Colors.white, size: 20),
+              ),
             ),
           ),
         ),

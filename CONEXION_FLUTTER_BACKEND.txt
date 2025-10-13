@@ -1,0 +1,28 @@
+Resumen de conexión Flutter Web ↔️ Backend
+============================================
+
+1. Producción (Railway)
+----------------------
+- En `lib/config/endpoints.dart` pon SIEMPRE:
+  static const String base = 'https://notimapa-production.up.railway.app';
+- Así el build web usará Railway y nunca localhost.
+- El socket debe conectar a:
+  wss://notimapa-production.up.railway.app/socket.io/...
+- Para pruebas en producción, solo haz build y sirve la carpeta build/web.
+
+2. Desarrollo Local (localhost)
+-------------------------------
+- Si quieres probar con backend local, cambia temporalmente en endpoints.dart:
+  static const String base = 'http://localhost:3001';
+- Haz flutter clean, flutter pub get, flutter build web y sirve la app.
+- El socket debe conectar a:
+  ws://localhost:3001/socket.io/...
+- ¡Vuelve a poner Railway antes de hacer build para producción!
+
+3. Recomendaciones
+------------------
+- Siempre haz flutter clean antes de cambiar la URL base.
+- Borra caché y service worker del navegador si no cambia la URL.
+- No uses variables ni condiciones automáticas para la URL base en producción: así evitas errores y confusiones.
+
+Este archivo es tu guía rápida para evitar problemas de conexión entre Flutter web y el backend.

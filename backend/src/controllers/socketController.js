@@ -14,8 +14,6 @@ const userLocations = new Map(); // socketId -> { lat, lng, ts }
 const activeMarkers = new Map(); // markerId -> markerData
 // Registro de quién ya fue notificado por cada marker
 const notifiedForMarker = new Map(); // markerId -> Set(socketId)
-// Registro de confirmaciones/negaciones en memoria
-// We'll store Sets inside the activeMarkers entry as .confirmedBy and .deniedBy
 
 // Parámetros de proximidad
 const TTL_LOCATION_MS = 60 * 1000; // 60s
@@ -26,11 +24,19 @@ const AUTO_REMOVE_MS = 50 * 60 * 1000; // 50 minutos
 
 // Internal flag to ensure we schedule existing markers only once
 let _markersInitialized = false;
+// Io instance exposable para que rutas REST puedan emitir
+let _ioInstance = null;
 
-// Admin list from env (comma separated) - fallback empty
-const ADMIN_USER_IDS = (process.env.ADMIN_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
-// Default admin PIN (fallback) - puedes cambiar esto en env si lo deseas
-const DEFAULT_ADMIN_PIN = process.env.DEFAULT_ADMIN_PIN || '041990';
+function setIoInstance(io) {
+  try {
+    _ioInstance = io;
+    console.log('🔌 setIoInstance OK');
+    // Schedule any existing markers now that we have io
+    try { scheduleExistingMarkers(io); } catch (e) { console.warn('Could not schedule on setIoInstance:', e.message || e); }
+  } catch (e) {
+    console.warn('🔌 setIoInstance error:', e.message || e);
+  }
+}
 
 /**
  * Schedule a single auto-remove timer for a marker using remaining time calculated
@@ -107,7 +113,7 @@ async function scheduleExistingMarkers(io) {
       const createdAtMs = m.created_at_ms || (m.created_at ? Date.parse(m.created_at) : Date.now());
       const tipo = m.tipo_reporte || 'interes';
       // Keep in-memory activeMarkers in sync
-        activeMarkers.set(markerId, {
+      activeMarkers.set(markerId, {
         id: markerId,
         userId: m.user_id,
         username: m.user_nombre,
@@ -115,9 +121,7 @@ async function scheduleExistingMarkers(io) {
         longitude: m.longitude,
         tipoReporte: tipo,
         timestamp: createdAtMs,
-          expiresAt: createdAtMs + AUTO_REMOVE_MS,
-          confirmedBy: new Set(),
-          deniedBy: new Set()
+        expiresAt: createdAtMs + AUTO_REMOVE_MS
       });
       notifiedForMarker.set(markerId, new Set());
       _scheduleAutoRemove(markerId, createdAtMs, tipo, io);
@@ -186,64 +190,62 @@ const authenticateSocket = async (socket) => {
     const token = socket.handshake.auth.token;
     console.log(`🔍 Token recibido: ${token ? 'SÍ' : 'NO'}`);
 
-    if (!token) {
-      // Allow anonymous connections: create a lightweight anonymous user
-      const anonId = `anon_${uuidv4().slice(0, 8)}`;
-      const anonUser = {
-        id: anonId,
-        username: `Anon_${anonId}`,
-        avatar: `AN:#BDBDBD`,
-        isOnline: true,
-        socketId: socket.id,
-        isAnonymous: true,
-        isAdmin: false
-      };
-      simpleBD.users.push(anonUser);
-      registeredUsersSet.add(anonUser.id);
-      console.log(`👤 Usuario anónimo conectado: ${anonUser.username} (Total registrados: ${registeredUsersSet.size})`);
-      return anonUser;
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, getJwtSecret());
+        console.log(`✅ Token decodificado para usuario: ${decoded.userId} (${decoded.username})`);
+        registeredUsersSet.add(decoded.userId);
+        let user = simpleBD.users.find(u => u.id === decoded.userId);
+        if (!user) {
+          user = {
+            id: decoded.userId,
+            username: decoded.username || `User_${decoded.userId}`,
+            avatar: `${(decoded.username || 'U').substring(0, 2).toUpperCase()}:#4ECDC4`,
+            isOnline: true,
+            socketId: socket.id
+          };
+          simpleBD.users.push(user);
+          console.log(`👤 Nuevo usuario registrado: ${user.username} (Total registrados: ${registeredUsersSet.size})`);
+        } else {
+          user.username = decoded.username || user.username;
+          user.isOnline = true;
+          user.socketId = socket.id;
+          console.log(`👤 Usuario reconectado: ${user.username} (Total registrados: ${registeredUsersSet.size})`);
+        }
+        return user;
+      } catch (err) {
+        console.log(`❌ Token inválido: ${err.message}, se conectará como anónimo`);
+        // fallthrough to anonymous
+      }
     }
 
-    // If token exists, verify JWT as before
-    const decoded = jwt.verify(token, getJwtSecret());
-    console.log(`✅ Token decodificado para usuario: ${decoded.userId} (${decoded.username})`);
-
-    // Registrar usuario único (acumula total de usuarios con la app)
-    registeredUsersSet.add(decoded.userId);
-
-  // Determine admin flag from token, env list or handshake pin
-  const isAdminFromToken = !!decoded.isAdmin;
-  const isAdminFromEnv = ADMIN_USER_IDS.includes((decoded.userId || '').toString());
-  // Allow admin via handshake PIN for quick identification (handshake.auth.pin or .adminPin)
-  const handshakePin = socket.handshake && (socket.handshake.auth?.pin || socket.handshake.auth?.adminPin);
-  const isAdminFromPin = handshakePin && (handshakePin.toString() === (process.env.DEFAULT_ADMIN_PIN || DEFAULT_ADMIN_PIN));
-
-    let user = simpleBD.users.find(u => u.id === decoded.userId);
-    if (!user) {
-      user = {
-        id: decoded.userId,
-        username: decoded.username || `User_${decoded.userId}`,
-        avatar: `${(decoded.username || 'U').substring(0, 2).toUpperCase()}:#4ECDC4`,
-        isOnline: true,
-        socketId: socket.id,
-        isAdmin: isAdminFromToken || isAdminFromEnv || !!isAdminFromPin || false
-      };
-      simpleBD.users.push(user);
-      console.log(`👤 Nuevo usuario registrado: ${user.username} (Total registrados: ${registeredUsersSet.size})${user.isAdmin ? ' [ADMIN]' : ''}`);
-    } else {
-      // Actualizar con nombre del token
-      user.username = decoded.username || user.username;
-      user.isOnline = true;
-      user.socketId = socket.id;
-      user.isAdmin = user.isAdmin || isAdminFromToken || isAdminFromEnv || !!isAdminFromPin;
-      console.log(`👤 Usuario reconectado: ${user.username} (Total registrados: ${registeredUsersSet.size})${user.isAdmin ? ' [ADMIN]' : ''}`);
-    }
-
-    return user;
+    // Si no hay token o es inválido, crear usuario anónimo en desarrollo
+    const anonId = `anon_${uuidv4()}`;
+    registeredUsersSet.add(anonId);
+    const anonUser = {
+      id: anonId,
+      username: `Anon_${anonId.substring(0,6)}`,
+      avatar: `AN:#CCCCCC`,
+      isOnline: true,
+      socketId: socket.id
+    };
+    simpleBD.users.push(anonUser);
+    console.log(`👤 Conexión anónima creada: ${anonUser.username} (Total registrados: ${registeredUsersSet.size})`);
+    return anonUser;
   } catch (error) {
-    console.log(`❌ Error auth: ${error.message}`);
-    // If token verification failed, refuse connection
-    throw new Error('Token inválido');
+    console.log(`❌ Error auth inesperado: ${error.message}`);
+    // En caso extremo, permitir conexión anónima
+    const anonId = `anon_${uuidv4()}`;
+    registeredUsersSet.add(anonId);
+    const anonUser = {
+      id: anonId,
+      username: `Anon_${anonId.substring(0,6)}`,
+      avatar: `AN:#CCCCCC`,
+      isOnline: true,
+      socketId: socket.id
+    };
+    simpleBD.users.push(anonUser);
+    return anonUser;
   }
 };
 
@@ -375,12 +377,6 @@ const handleSocketConnection = async (socket, io) => {
     // Nuevo contenido multimedia (evento de la app mobile/legacy)
     socket.on('nuevo_contenido', async (data) => {
       try {
-        // Only admins allowed to share multimedia via this event
-        if (!user || !user.isAdmin) {
-          console.log(`⛔ Usuario ${user?.username || 'anon'} no autorizado a compartir contenido`);
-          socket.emit('error_message', { error: 'No autorizado para subir contenido multimedia' });
-          return;
-        }
         console.log(`🖼️ ${user.username} compartió nuevo contenido (raw tipo='${data.tipo}')`);
 
         // Normalizar tipo a valores esperados: image|video|audio
@@ -438,12 +434,6 @@ const handleSocketConnection = async (socket, io) => {
     // Nuevo multimedia (evento específico para feed compartido)
     socket.on('nuevo_multimedia', async (data) => {
       try {
-        // Only admins allowed to post multimedia
-        if (!user || !user.isAdmin) {
-          console.log(`⛔ Usuario ${user?.username || 'anon'} no autorizado a subir multimedia`);
-          socket.emit('error_message', { error: 'No autorizado para subir multimedia' });
-          return;
-        }
         const { roomId, contenido } = data;
         console.log(`📸 ${user.username} compartió multimedia en sala ${roomId}`);
         console.log(`📋 Datos recibidos:`, JSON.stringify(data, null, 2));
@@ -599,11 +589,12 @@ const handleSocketConnection = async (socket, io) => {
         longitude: data.longitude,
         tipoReporte: normalizedTipo,
         timestamp: Date.now(),
-        expiresAt: Date.now() + AUTO_REMOVE_MS,
-        // in-memory sets (not serialized)
-        confirmedBy: new Set(),
-        deniedBy: new Set()
+        expiresAt: Date.now() + AUTO_REMOVE_MS
       };
+
+      // Initialize confirmation counters
+      markerData.confirms = 0;
+      markerData.denies = 0;
 
       // Normalized lower-case tipo for later checks
       const tipoLower = (normalizedTipo || '').toString().toLowerCase();
@@ -619,8 +610,8 @@ const handleSocketConnection = async (socket, io) => {
           tipo_reporte: normalizedTipo
         });
         
-  // Mantener marker activo en memoria para notificaciones por proximidad
-  activeMarkers.set(markerId, markerData);
+        // Mantener marker activo en memoria para notificaciones por proximidad
+        activeMarkers.set(markerId, markerData);
         notifiedForMarker.set(markerId, new Set());
 
         // Notificar inmediatamente a sockets que tienen ubicación reciente y estén dentro del radio
@@ -681,14 +672,30 @@ const handleSocketConnection = async (socket, io) => {
 
         // Enviar a todos los usuarios conectados (incluyendo el que lo creó)
         try {
-          // Emit marker_added with public fields (counts) - do not expose Sets
-          const publicMarker = Object.assign({}, markerData, { confirms: 0, denies: 0 });
-          io.emit('marker_added', publicMarker);
+          const publicMarker = {
+            id: markerId,
+            userId: markerData.userId,
+            username: markerData.username,
+            latitude: markerData.latitude,
+            longitude: markerData.longitude,
+            tipoReporte: markerData.tipoReporte,
+            timestamp: markerData.timestamp || Date.now(),
+            expiresAt: markerData.expiresAt || ((markerData.timestamp || Date.now()) + AUTO_REMOVE_MS),
+            confirms: markerData.confirms || 0,
+            denies: markerData.denies || 0
+          };
+          console.log('📡 Emitting marker_added (restore):', JSON.stringify(publicMarker));
+          // Prefer module-wide _ioInstance if available
+          try {
+            const emitter = _ioInstance || io;
+            emitter && emitter.emit && emitter.emit('marker_added', publicMarker);
+          } catch (emitErr) {
+            io.emit('marker_added', publicMarker);
+          }
         } catch (e) {
-          // Fallback: broadcast + confirm
-          const publicMarker = Object.assign({}, markerData, { confirms: 0, denies: 0 });
-          socket.broadcast.emit('marker_added', publicMarker);
-          socket.emit('marker_confirmed', publicMarker);
+          // Fallback: broadcast original marker data
+          socket.broadcast.emit('marker_added', markerData);
+          socket.emit('marker_added', markerData);
         }
         
         console.log(`✅ Marcador ${markerId} guardado en BD`);
@@ -768,46 +775,6 @@ const handleSocketConnection = async (socket, io) => {
       }
     });
 
-    // Confirmar marcador (usuario pulsa confirmar)
-    socket.on('confirm_marker', async (data) => {
-      try {
-        const markerId = data && data.markerId;
-        if (!markerId) return;
-        if (!activeMarkers.has(markerId)) return;
-        const marker = activeMarkers.get(markerId);
-        marker.confirmedBy = marker.confirmedBy || new Set();
-        marker.deniedBy = marker.deniedBy || new Set();
-        if (!marker.confirmedBy.has(user.id)) {
-          marker.confirmedBy.add(user.id);
-          // If user had denied before, remove their denial
-          if (marker.deniedBy.has(user.id)) marker.deniedBy.delete(user.id);
-          // broadcast updated counts
-          io.emit('marker_updated', { id: markerId, confirms: marker.confirmedBy.size, denies: marker.deniedBy.size });
-        }
-      } catch (err) {
-        console.error('❌ Error en confirm_marker:', err.message || err);
-      }
-    });
-
-    // Negar marcador (usuario pulsa negar)
-    socket.on('deny_marker', async (data) => {
-      try {
-        const markerId = data && data.markerId;
-        if (!markerId) return;
-        if (!activeMarkers.has(markerId)) return;
-        const marker = activeMarkers.get(markerId);
-        marker.confirmedBy = marker.confirmedBy || new Set();
-        marker.deniedBy = marker.deniedBy || new Set();
-        if (!marker.deniedBy.has(user.id)) {
-          marker.deniedBy.add(user.id);
-          if (marker.confirmedBy.has(user.id)) marker.confirmedBy.delete(user.id);
-          io.emit('marker_updated', { id: markerId, confirms: marker.confirmedBy.size, denies: marker.deniedBy.size });
-        }
-      } catch (err) {
-        console.error('❌ Error en deny_marker:', err.message || err);
-      }
-    });
-
     // Evento para eliminar marcador del mapa
     socket.on('remove_marker', async (data) => {
       console.log(`🗑️ Eliminar marcador ${data.markerId} por ${user.username}`);
@@ -854,8 +821,7 @@ const handleSocketConnection = async (socket, io) => {
           tipoReporte: marker.tipo_reporte,
           // Preferir valor en ms calculado por la query; fallback a parse
           timestamp: marker.created_at_ms || new Date(marker.created_at).getTime(),
-          confirms: (activeMarkers.get(marker.marker_id)?.confirmedBy?.size) || 0,
-          denies: (activeMarkers.get(marker.marker_id)?.deniedBy?.size) || 0
+          expiresAt: (marker.created_at_ms || new Date(marker.created_at).getTime()) + AUTO_REMOVE_MS
         }));
         
         socket.emit('existing_markers', formattedMarkers);
@@ -904,5 +870,59 @@ const handleSocketConnection = async (socket, io) => {
 
 module.exports = {
   handleSocketConnection,
-  connectedUsers
+  connectedUsers,
+  setIoInstance,
+  scheduleExistingMarkers,
+  confirmMarkerByUser,
+  denyMarkerByUser
 };
+
+// Exponer funciones para llamadas REST (confirm / deny desde HTTP)
+async function confirmMarkerByUser(markerId, userId) {
+  try {
+    if (!markerId) return { success: false, error: 'markerId missing' };
+    const marker = activeMarkers.get(markerId);
+    if (!marker) return { success: false, error: 'Marker not found' };
+    marker.confirms = (marker.confirms || 0) + 1;
+    activeMarkers.set(markerId, marker);
+    try {
+      const emitter = _ioInstance || null;
+      if (emitter && emitter.emit) {
+        emitter.emit('marker_confirmed', {
+          markerId,
+          userId,
+          confirms: marker.confirms || 0,
+          denies: marker.denies || 0
+        });
+      }
+    } catch (e) { console.warn('Emit confirm error:', e.message || e); }
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message || e };
+  }
+}
+
+async function denyMarkerByUser(markerId, userId) {
+  try {
+    if (!markerId) return { success: false, error: 'markerId missing' };
+    const marker = activeMarkers.get(markerId);
+    if (!marker) return { success: false, error: 'Marker not found' };
+    marker.denies = (marker.denies || 0) + 1;
+    activeMarkers.set(markerId, marker);
+    try {
+      const emitter = _ioInstance || null;
+      if (emitter && emitter.emit) {
+        // reuse 'marker_updated' to notify clients of new denies count
+        emitter.emit('marker_updated', {
+          markerId,
+          userId,
+          confirms: marker.confirms || 0,
+          denies: marker.denies || 0
+        });
+      }
+    } catch (e) { console.warn('Emit deny error:', e.message || e); }
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message || e };
+  }
+}
