@@ -6,7 +6,7 @@
 class Endpoints {
   // During development set useLocal = true to point Flutter at your local
   // backend (http://localhost:3001). Set to false to use deployed backend.
-  static const bool useLocal = true; // toggle for quick local testing
+  static const bool useLocal = false; // toggle for quick local testing (false -> production)
   static const String _prod = 'https://notimapa-production.up.railway.app';
   static const String _local = 'http://localhost:3001';
 
