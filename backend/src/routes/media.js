@@ -184,23 +184,63 @@ router.get('/info/:type/:filename', (req, res) => {
 });
 
 // DELETE /api/media/:type/:filename - Eliminar archivo
-router.delete('/:type/:filename', (req, res) => {
+// Nota: endpoint configurable para permitir eliminaciones sin PIN ni token (modo "libre").
+// Según solicitud del equipo, quitamos el requisito de auth para permitir eliminar archivos
+// directamente mediante DELETE. Mantener esto en desarrollo solo si se entiende el riesgo.
+
+// Admin config: env ADMIN_USER_IDS (csv) and ADMIN_PIN
+const ADMIN_USER_IDS = (process.env.ADMIN_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+const ADMIN_PIN = process.env.ADMIN_PIN || null;
+
+function _isAdminRequest(req) {
+  try {
+    if (req.user && ADMIN_USER_IDS.length > 0 && ADMIN_USER_IDS.includes(req.user.id)) return true;
+    const providedPin = req.header('X-Admin-Pin') || req.header('x-admin-pin');
+    if (ADMIN_PIN && providedPin && providedPin === ADMIN_PIN) return true;
+    return false;
+  } catch (e) { return false; }
+}
+
+router.delete('/:type/:filename', async (req, res) => {
   try {
     const { type, filename } = req.params;
     const filePath = path.join(__dirname, '../uploads', type, filename);
-    
+  // Buscar metadata en sqlite (si existe) para borrar metadata después de eliminar el archivo
+  const possibleUrl = `${req.protocol}://${req.get('host')}/uploads/${type}/${filename}`;
+  // Intentar encontrar por URL, original_name o media_id
+  let mediaRow = await sqlite.findMediaByIdentifier(possibleUrl);
+  if (!mediaRow) mediaRow = await sqlite.findMediaByIdentifier(filename);
+  if (!mediaRow) mediaRow = await sqlite.findMediaByIdentifier(filename.split('.').slice(0, -1).join('.'));
+
     if (!fs.existsSync(filePath)) {
+      // If file missing but metadata exists, still remove metadata
+      if (mediaRow && mediaRow.media_id) {
+        await sqlite.deleteMediaByMediaId(mediaRow.media_id);
+      }
       return res.status(404).json({ error: 'Archivo no encontrado' });
     }
-    
+
     fs.unlinkSync(filePath);
     console.log('🗑️ Archivo eliminado:', filePath);
-    
-    res.json({ 
-      message: 'Archivo eliminado correctamente',
-      filename: filename 
-    });
-    
+
+    if (mediaRow && mediaRow.media_id) {
+      await sqlite.deleteMediaByMediaId(mediaRow.media_id);
+      console.log('🧾 Metadata eliminada de SQLite para media_id:', mediaRow.media_id);
+    }
+
+    // Si el directorio uploads/<type> quedó vacío tras eliminar, eliminar la carpeta
+    try {
+      const uploadDir = path.join(__dirname, '../uploads', type);
+      const remaining = fs.readdirSync(uploadDir).filter(f => f && f.trim().length > 0);
+      if (remaining.length === 0) {
+        fs.rmdirSync(uploadDir);
+        console.log('🧹 Directorio de uploads vacío eliminado:', uploadDir);
+      }
+    } catch (e) {
+      // Ignore errors (dir may not exist or not empty)
+    }
+
+    res.json({ message: 'Archivo eliminado correctamente', filename: filename });
   } catch (error) {
     console.error('❌ Error eliminando archivo:', error);
     res.status(500).json({ error: 'Error eliminando archivo' });

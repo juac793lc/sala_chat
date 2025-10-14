@@ -371,6 +371,31 @@ module.exports = {
     }
     return rows;
   },
+
+  async deleteMediaByMediaId(media_id) {
+    const database = await initDb();
+    try {
+      const stmt = database.prepare('DELETE FROM media WHERE media_id = ?');
+      stmt.run([media_id]);
+      saveDb();
+      return true;
+    } catch (e) {
+      console.warn('⚠️ deleteMediaByMediaId error:', e.message);
+      return false;
+    }
+  },
+  
+  async findMediaByIdentifier(identifier) {
+    const database = await initDb();
+    try {
+      const res = database.exec('SELECT * FROM media WHERE url = ? OR original_name = ? OR media_id = ? LIMIT 1', [identifier, identifier, identifier]);
+      if (res.length === 0 || res[0].values.length === 0) return null;
+      return this._rowToObject(res[0], 0);
+    } catch (e) {
+      console.warn('⚠️ findMediaByIdentifier error:', e.message);
+      return null;
+    }
+  },
   
   _rowToObject(result, rowIndex) {
     const row = {};

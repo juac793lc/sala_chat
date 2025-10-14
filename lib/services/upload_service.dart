@@ -12,6 +12,8 @@ import 'package:path/path.dart' as path;
 
 import 'web_storage_service.dart';
 import '../config/endpoints.dart';
+import 'auth_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class UploadService {
   // Ajustar al puerto real del backend (server.js usa 3000 por defecto)
@@ -383,6 +385,36 @@ class UploadService {
       return response.statusCode == 200 || response.statusCode == 204;
     } catch (e) {
       debugPrint('❌ Error eliminando archivo del servidor: $e');
+      return false;
+    }
+  }
+
+  /// Elimina un media por tipo y filename usando el API del backend, adjuntando Authorization/X-Admin-Pin si existen
+  static Future<bool> deleteMediaByTypeFilename(String type, String filename, {String? adminPin}) async {
+    try {
+      final apiUrl = '$baseUrl/api/media/$type/$filename';
+      final headers = <String, String>{};
+      try {
+        final token = await AuthService.getToken();
+        if (token != null && token.isNotEmpty) headers['Authorization'] = 'Bearer $token';
+      } catch (_) {}
+      try {
+        // if adminPin explicitly provided, use it; otherwise read saved admin_pin
+        final pin = adminPin ?? (await SharedPreferences.getInstance()).getString('admin_pin');
+        if (pin != null && pin.isNotEmpty) headers['X-Admin-Pin'] = pin;
+      } catch (_) {}
+      // If this build is marked as super user, attach the secret header so backend can accept uploads/deletes without PIN
+      try {
+        if (Endpoints.superUserBuild && Endpoints.superUserSecret.isNotEmpty) {
+          headers['X-Super-User'] = Endpoints.superUserSecret;
+        }
+      } catch (_) {}
+
+  final resp = await http.delete(Uri.parse(apiUrl), headers: headers);
+  // Consider 200/201/204 as success; also treat 404 (already deleted) as success for UI removal
+  return resp.statusCode == 200 || resp.statusCode == 204 || resp.statusCode == 201 || resp.statusCode == 404;
+    } catch (e) {
+      debugPrint('❌ Error deleteMediaByTypeFilename: $e');
       return false;
     }
   }

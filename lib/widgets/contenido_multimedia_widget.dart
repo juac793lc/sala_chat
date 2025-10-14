@@ -1,22 +1,26 @@
-import 'dart:io';
+// dart:io removed to keep web compatibility
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-// audio UI removed: we only show image and video previews
+import '../config/endpoints.dart';
 import '../models/contenido_multimedia.dart';
+import '../services/auth_service.dart';
+import '../services/upload_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:html' as html; // ignore: avoid_web_libraries_in_flutter
-import 'dart:ui_web' as ui;
-// no async helpers needed
+import 'dart:ui_web' as ui; // ignore: avoid_web_libraries_in_flutter
 
 class ContenidoMultimediaWidget extends StatefulWidget {
   final ContenidoMultimedia contenido;
   final VoidCallback onTextoTap;
   final VoidCallback onAudioTap;
+  final void Function(String id)? onDelete;
 
   const ContenidoMultimediaWidget({
     super.key,
     required this.contenido,
     required this.onTextoTap,
     required this.onAudioTap,
+    this.onDelete,
   });
 
   @override
@@ -27,300 +31,187 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
   @override
   void initState() {
     super.initState();
-    // No audio initialization in simplified UI
   }
 
-  @override
-  void dispose() {
-    // No audio resources to dispose here
-    super.dispose();
-  }
-
-  // Cache for computed BoxFit per image URL to avoid recalculating
-  final Map<String, BoxFit> _imageFitCache = {};
-  final Set<String> _resolvingFits = {};
-
-  // Audio helpers removed for simplified UI
-
-  // Construir widget de imagen compatible con PWA y dispositivos nativos
-  Widget _buildImageWidget() {
-    // Si es una URL del servidor, blob (PWA) o URL HTTP, usar Image.network
-    if (widget.contenido.url.startsWith('blob:') || 
-        widget.contenido.url.startsWith('http://') ||
-        widget.contenido.url.startsWith('https://') ||
-        widget.contenido.url.startsWith('/uploads/')) {
-      
-      // Usar Image.network para URLs remotas, blobs, y rutas del servidor
-      // Determine fit: if we already computed fit for this URL use it; otherwise default to contain
-      final cachedFit = _imageFitCache[widget.contenido.url] ?? BoxFit.contain;
-      // Start async resolve if not cached
-      if (!_imageFitCache.containsKey(widget.contenido.url) && !_resolvingFits.contains(widget.contenido.url)) {
-        _resolveImageFit(widget.contenido.url, false);
-      }
-
-      return InteractiveViewer(
-        clipBehavior: Clip.hardEdge,
-        panEnabled: true,
-        scaleEnabled: true,
-        minScale: 1.0,
-        maxScale: 4.0,
-        child: Image.network(
-          widget.contenido.url,
-          fit: cachedFit,
-          loadingBuilder: (context, child, loadingProgress) {
-            if (loadingProgress == null) return child;
-            final expected = loadingProgress.expectedTotalBytes;
-            final loaded = loadingProgress.cumulativeBytesLoaded;
-            final progress = (expected != null && expected > 0) ? loaded / expected : null;
-            return Container(
-              color: Colors.grey.shade200,
-              child: Center(
-                child: SizedBox(
-                  width: 48,
-                  height: 48,
-                  child: CircularProgressIndicator(value: progress),
-                ),
-              ),
-            );
-          },
-          errorBuilder: (context, error, stackTrace) {
-          return Container(
-            width: double.infinity,
-            height: double.infinity,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Colors.blue.shade100, Colors.purple.shade100],
-              ),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(
-                  Icons.image,
-                  size: 60,
-                  color: Colors.white70,
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Error cargando imagen',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 12,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          );
-        },
-        ),
-      );
-    } else if (!kIsWeb) {
-      // Dispositivos nativos: usar Image.file solo para paths locales
-      final cachedFileFit = _imageFitCache[widget.contenido.url] ?? BoxFit.contain;
-      if (!_imageFitCache.containsKey(widget.contenido.url) && !_resolvingFits.contains(widget.contenido.url)) {
-        _resolveImageFit(widget.contenido.url, true);
-      }
-
-      return InteractiveViewer(
-        clipBehavior: Clip.hardEdge,
-        panEnabled: true,
-        scaleEnabled: true,
-        minScale: 1.0,
-        maxScale: 4.0,
-        child: Image.file(
-          File(widget.contenido.url),
-          fit: cachedFileFit,
-          width: double.infinity,
-          height: double.infinity,
-          errorBuilder: (context, error, stackTrace) {
-          return Container(
-            width: double.infinity,
-            height: double.infinity,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Colors.red.shade100, Colors.orange.shade100],
-              ),
-            ),
-            child: const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.error_outline,
-                    size: 60,
-                    color: Colors.white70,
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    'Error al cargar imagen',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-        ),
-      );
-    } else {
-      // Placeholder para cuando no hay imagen
-      return Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Colors.grey.shade200, Colors.grey.shade300],
-          ),
-        ),
-        child: const Center(
-          child: Icon(
-            Icons.image,
-            size: 80,
-            color: Colors.grey,
-          ),
-        ),
-      );
+  Future<bool> _canCurrentUserDelete() async {
+    try {
+      final user = AuthService.getCachedUser();
+      if (user != null && user.isAdmin) return true;
+      if (user != null && widget.contenido.autorId.isNotEmpty && user.id == widget.contenido.autorId) return true;
+      final sp = await SharedPreferences.getInstance();
+      final pin = sp.getString('admin_pin');
+      if (pin != null && pin.isNotEmpty) return true;
+      return false;
+    } catch (_) {
+      return false;
     }
+  }
+
+  Future<void> _confirmAndDelete(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar archivo'),
+        content: const Text('¿Seguro que deseas eliminar este archivo?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancelar')),
+          ElevatedButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Eliminar')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    try {
+      final uri = Uri.parse(widget.contenido.url);
+      final segments = uri.pathSegments;
+      final uploadsIndex = segments.indexOf('uploads');
+      if (uploadsIndex < 0 || uploadsIndex + 2 > segments.length - 1) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('URL inválida')));
+        return;
+      }
+      final type = segments[uploadsIndex + 1];
+      final filename = segments[uploadsIndex + 2];
+
+      final okDelete = await UploadService.deleteMediaByTypeFilename(type, filename);
+      if (okDelete) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Archivo eliminado'), backgroundColor: Colors.green));
+      } else {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se eliminó en servidor'), backgroundColor: Colors.orange));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al eliminar: $e'), backgroundColor: Colors.red));
+    } finally {
+      if (widget.onDelete != null) widget.onDelete!(widget.contenido.id);
+    }
+  }
+
+  void _openFullScreenImage(String url) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.all(8),
+        child: LayoutBuilder(builder: (context, constraints) {
+          final maxW = MediaQuery.of(context).size.width * 0.95;
+          final maxH = MediaQuery.of(context).size.height * 0.9;
+          final boxW = constraints.maxWidth.clamp(200.0, maxW);
+          final boxH = constraints.maxHeight.clamp(200.0, maxH);
+          return SizedBox(
+            width: boxW,
+            height: boxH,
+            child: InteractiveViewer(
+              minScale: 1.0,
+              maxScale: 4.0,
+              child: Container(
+                color: Colors.black,
+                child: Center(child: Image.network(url, fit: BoxFit.contain)),
+              ),
+            ),
+          );
+        }),
+      ),
+    );
   }
 
   Widget _buildContenidoPreview() {
-    switch (widget.contenido.tipo) {
-      case TipoContenido.imagen:
-        final screenHeight = MediaQuery.of(context).size.height;
-  final desired = (screenHeight * 0.50).clamp(200.0, 700.0);
-        return SizedBox(
-          height: desired,
-          width: double.infinity,
+    final screenHeight = MediaQuery.of(context).size.height;
+    final desired = (screenHeight * 0.50).clamp(200.0, 700.0);
+
+    if (widget.contenido.tipo == TipoContenido.imagen) {
+      return SizedBox(
+        height: desired,
+        width: double.infinity,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
           child: Stack(
             children: [
-              // Imagen real - Mostrar archivo del dispositivo si existe
               Positioned.fill(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: _buildImageWidget(),
+                child: GestureDetector(
+                  onTap: () => _openFullScreenImage(widget.contenido.url),
+                  child: Image.network(
+                    widget.contenido.url,
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    height: double.infinity,
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      final expected = loadingProgress.expectedTotalBytes;
+                      final loaded = loadingProgress.cumulativeBytesLoaded;
+                      final progress = (expected != null && expected > 0) ? loaded / expected : null;
+                      return Container(
+                        color: Colors.grey.shade200,
+                        child: Center(child: SizedBox(width: 48, height: 48, child: CircularProgressIndicator(value: progress))),
+                      );
+                    },
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        color: Colors.grey.shade300,
+                        child: const Center(child: Icon(Icons.broken_image, size: 48, color: Colors.white70)),
+                      );
+                    },
+                  ),
                 ),
               ),
-              // Overlay de autor eliminado por request del usuario (se retiró el widget)
+              // delete overlay
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Endpoints.superUserBuild
+                    ? _deleteButton()
+                    : FutureBuilder<bool>(future: _canCurrentUserDelete(), builder: (c, s) {
+                        if (s.data == true) return _deleteButton();
+                        return const SizedBox.shrink();
+                      }),
+              ),
             ],
           ),
-        );
-        
-      case TipoContenido.video:
-        final screenHeight = MediaQuery.of(context).size.height;
-  final desired = (screenHeight * 0.50).clamp(200.0, 700.0);
-        return SizedBox(
-          height: desired,
-          width: double.infinity,
+        ),
+      );
+    }
+
+    if (widget.contenido.tipo == TipoContenido.video) {
+      return SizedBox(
+        height: desired,
+        width: double.infinity,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
           child: Stack(
             children: [
-              // Reproductor de video real
-              Container(
-                width: double.infinity,
-                height: double.infinity,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: _buildVideoPlayer(),
-                ),
+              Positioned.fill(child: _buildVideoPlayer()),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Endpoints.superUserBuild
+                    ? _deleteButton()
+                    : FutureBuilder<bool>(future: _canCurrentUserDelete(), builder: (c, s) {
+                        if (s.data == true) return _deleteButton();
+                        return const SizedBox.shrink();
+                      }),
               ),
-              // Overlay de autor eliminado por request del usuario (se retiró el widget)
             ],
           ),
-        );
-        
-      case TipoContenido.audio:
-        // Ocultar audio en esta vista simplificada
-        return const SizedBox.shrink();
-    }
-  }
-
-  // Resolve natural size of image to pick a better BoxFit (fitWidth when image is wide)
-  void _resolveImageFit(String url, bool isFile) {
-    try {
-      _resolvingFits.add(url);
-      ImageProvider provider;
-      if (isFile) {
-        provider = FileImage(File(url));
-      } else {
-        provider = NetworkImage(url);
-      }
-  final stream = provider.resolve(const ImageConfiguration());
-      ImageStreamListener? listener;
-      listener = ImageStreamListener((info, _) {
-        try {
-          final img = info.image;
-          final w = img.width.toDouble();
-          final h = img.height.toDouble();
-          final aspect = w / h;
-          // If image is wide (aspect ratio > 1.6) prefer filling width
-          final fit = (aspect > 1.6) ? BoxFit.fitWidth : BoxFit.contain;
-          _imageFitCache[url] = fit;
-          if (mounted) setState(() {});
-        } catch (e) {
-          // ignore
-        } finally {
-          if (listener != null) stream.removeListener(listener);
-          _resolvingFits.remove(url);
-        }
-      }, onError: (err, stack) {
-        if (listener != null) stream.removeListener(listener);
-        _resolvingFits.remove(url);
-      });
-      stream.addListener(listener);
-    } catch (e) {
-      _resolvingFits.remove(url);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color(0xFFB2DFDB), // Verde-azulado suave
-            Color(0xFFBBDEFB), // Azul suave
-          ],
         ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Contenido multimedia con overlay integrado
-          _buildContenidoPreview(),
-          
-          // Botones de comentarios y notas de voz eliminados para interfaz limpia
-        ],
+      );
+    }
+
+    // audio or unknown
+    return const SizedBox.shrink();
+  }
+
+  Widget _deleteButton() {
+    return Material(
+      color: Colors.black45,
+      shape: const CircleBorder(),
+      child: IconButton(
+        icon: const Icon(Icons.delete, color: Colors.white),
+        onPressed: () => _confirmAndDelete(context),
       ),
     );
   }
 
   Widget _buildVideoPlayer() {
     if (kIsWeb) {
-      // Para web, crear elemento video HTML5 embebido
       final String videoId = 'video_${widget.contenido.id}_${DateTime.now().millisecondsSinceEpoch}';
-      
       try {
-        // Registrar el elemento video HTML
         ui.platformViewRegistry.registerViewFactory(videoId, (int viewId) {
           final video = html.VideoElement()
             ..src = widget.contenido.url
@@ -330,50 +221,34 @@ class _ContenidoMultimediaWidgetState extends State<ContenidoMultimediaWidget> {
             ..style.height = '100%'
             ..style.objectFit = 'contain'
             ..style.backgroundColor = '#000';
-          
           return video;
         });
-        
         return HtmlElementView(viewType: videoId);
       } catch (e) {
         debugPrint('Error creando reproductor de video: $e');
-        return Container(
-          color: Colors.black,
-          child: const Center(
-            child: Text(
-              'Error al cargar video',
-              style: TextStyle(color: Colors.white),
-            ),
-          ),
-        );
+        return Container(color: Colors.black, child: const Center(child: Text('Error al cargar video', style: TextStyle(color: Colors.white))));
       }
-    } else {
-      // Para dispositivos nativos, mostrar placeholder
-      return Container(
-        width: double.infinity,
-        height: double.infinity,
-        color: Colors.black,
-        child: const Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.video_library,
-                size: 60,
-                color: Colors.white70,
-              ),
-              SizedBox(height: 12),
-              Text(
-                'Video no soportado en esta plataforma',
-                style: TextStyle(color: Colors.white70),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      );
     }
+
+    return Container(color: Colors.black, child: const Center(child: Icon(Icons.videocam, color: Colors.white70, size: 48)));
   }
 
-
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.blue.shade700,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 2))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildContenidoPreview(),
+          // espacio inferior para separar items
+          const SizedBox(height: 12),
+        ],
+      ),
+    );
+  }
 }

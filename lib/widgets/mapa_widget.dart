@@ -14,10 +14,16 @@ import '../config/endpoints.dart';
 
 class MapaWidget extends StatefulWidget {
   final VoidCallback onClose;
+  final bool allowAutoLocation;
+  final double? initialLat;
+  final double? initialLng;
 
   const MapaWidget({
     super.key,
     required this.onClose,
+    this.allowAutoLocation = false,
+    this.initialLat,
+    this.initialLng,
   });
 
   @override
@@ -29,23 +35,52 @@ class _MapaWidgetState extends State<MapaWidget> {
   final List<Marker> _markers = [];
   final List<Marker> _sharedMarkers = []; // Marcadores compartidos de otros usuarios
   final Map<String, Map<String, dynamic>> _markerData = {}; // Datos de marcadores para tiempo dinámico
-  LatLng _currentCenter = const LatLng(18.4861, -69.9312); // Santo Domingo, RD (fallback)
-  bool _isLoading = true; // Empezar con loading true
+  // Inicializamos con Manaus por defecto; si el widget recibe initialLat/initialLng las usamos
+  LatLng _currentCenter = const LatLng(-3.1190, -60.0217); // Manaus, BR (fallback)
+  // No iniciar en estado loading para que el mapa se muestre de inmediato.
+  bool _isLoading = false;
   TipoReporte? _tipoSeleccionado;
   int _markerCounter = 0; // Para IDs únicos de marcadores
   late final SocketService _socketService;
+  final Map<String, Function> _registeredCallbacks = {};
   Timer? _timeUpdateTimer; // Timer para actualizar tiempos de estrellas
+  // Evita que el widget pida permisos de ubicación automáticamente
+  // en casos inesperados. Sólo si `_allowAutoLocation` es true se
+  // intentará solicitar la ubicación en init flows.
+  bool _allowAutoLocation = false;
 
   @override
   void initState() {
     super.initState();
   _socketService = SocketService.instance;
     // Obtener ubicación automáticamente al abrir el mapa (solo para centrar)
-    _getCurrentLocationSilent();
+    // Solo si se permite auto-location (guardado por la pantalla padre/opt-in)
+    // Inicializar bandera desde el widget padre
+    _allowAutoLocation = widget.allowAutoLocation;
+    // Si el padre nos pasó coordenadas iniciales, úsalas
+    if (widget.initialLat != null && widget.initialLng != null) {
+      _currentCenter = LatLng(widget.initialLat!, widget.initialLng!);
+    }
+    if (_allowAutoLocation) {
+      _getCurrentLocationSilent();
+    }
     // Configurar listeners para marcadores compartidos
     _setupSocketListeners();
     // Iniciar timer para actualizar tiempos de estrellas cada minuto
     _startTimeUpdateTimer();
+    // Asegurar que, después del primer frame, solicitamos marcadores
+    // una vez que el widget esté completamente montado y con listeners.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Future.delayed(const Duration(milliseconds: 250), () {
+        try {
+          debugPrint('MapaWidget post-frame: solicitando existing_markers (retry)');
+          SocketService.instance.emit('request_existing_markers', {});
+        } catch (e) {
+          debugPrint('Error emitiendo request_existing_markers en post-frame: $e');
+        }
+      });
+    });
   }
 
   @override
@@ -58,18 +93,10 @@ class _MapaWidgetState extends State<MapaWidget> {
 
   // Configurar listeners de socket para marcadores
   void _setupSocketListeners() {
-    // Usar el mecanismo de callbacks centralizado del SocketService para
-    // que los listeners sobrevivan a reconexiones y se registren una vez.
-    SocketService.instance.on('marker_added', (data) {
-      if (mounted) _addSharedMarker(data);
-    });
-
-    SocketService.instance.on('marker_removed', (data) {
-      if (mounted) _removeSharedMarker(data['markerId']);
-    });
-
-    SocketService.instance.on('marker_confirmed', (data) {
-      // Actualizar contadores cuando recibimos confirmaciones (no re-add)
+    // Registrar callbacks y guardarlos para poder removerlos correctamente
+    final markerAddedCb = (dynamic data) { if (mounted) _addSharedMarker(data); };
+    final markerRemovedCb = (dynamic data) { if (mounted) _removeSharedMarker(data['markerId']); };
+    final markerConfirmedCb = (dynamic data) {
       try {
         debugPrint('marker_confirmed recibido: $data');
         if (data is Map) {
@@ -84,13 +111,19 @@ class _MapaWidgetState extends State<MapaWidget> {
       } catch (e) {
         debugPrint('Error procesando marker_confirmed: $e');
       }
-    });
-
-    SocketService.instance.on('existing_markers', (data) {
-      if (mounted && data is List) _loadExistingMarkers(data);
-    });
-
-    SocketService.instance.on('marker_auto_removed', (data) {
+    };
+    final existingMarkersCb = (dynamic data) {
+      try {
+        if (mounted && data is List) {
+          debugPrint('✅ received existing_markers count=${data.length}');
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Marcadores recibidos: ${data.length}'), duration: const Duration(seconds: 1)));
+          _loadExistingMarkers(data);
+        }
+      } catch (e) {
+        debugPrint('Error processing existing_markers: $e');
+      }
+    };
+    final markerAutoRemovedCb = (dynamic data) {
       if (!mounted) return;
       _removeSharedMarker(data['markerId']);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -100,10 +133,8 @@ class _MapaWidgetState extends State<MapaWidget> {
           duration: const Duration(seconds: 3),
         ),
       );
-    });
-
-    // Actualizaciones de conteos (confirms/denies)
-    SocketService.instance.on('marker_updated', (data) {
+    };
+    final markerUpdatedCb = (dynamic data) {
       try {
         debugPrint('marker_updated recibido: $data');
         if (data is Map) {
@@ -118,35 +149,58 @@ class _MapaWidgetState extends State<MapaWidget> {
       } catch (e) {
         debugPrint('Error procesando marker_updated: $e');
       }
-    });
+    };
+
+    _socketService.on('marker_added', markerAddedCb);
+    _socketService.on('marker_removed', markerRemovedCb);
+    _socketService.on('marker_confirmed', markerConfirmedCb);
+    _socketService.on('existing_markers', existingMarkersCb);
+    _socketService.on('marker_auto_removed', markerAutoRemovedCb);
+    _socketService.on('marker_updated', markerUpdatedCb);
+
+    _registeredCallbacks['marker_added'] = markerAddedCb;
+    _registeredCallbacks['marker_removed'] = markerRemovedCb;
+    _registeredCallbacks['marker_confirmed'] = markerConfirmedCb;
+    _registeredCallbacks['existing_markers'] = existingMarkersCb;
+    _registeredCallbacks['marker_auto_removed'] = markerAutoRemovedCb;
+    _registeredCallbacks['marker_updated'] = markerUpdatedCb;
 
     // Pedir marcadores existentes ahora si ya estamos conectados;
     // si no, pediremos al reconectarnos (SocketService emite 'connected').
     void _onConnected(dynamic _) {
       try {
         debugPrint('SocketService conectado -> solicitando existing_markers');
-        SocketService.instance.emit('request_existing_markers', {});
+        _socketService.emit('request_existing_markers', {});
       } catch (e) {
         debugPrint('Error emitiendo request_existing_markers: $e');
       }
       // Una sola vez
-      try { SocketService.instance.off('connected', _onConnected); } catch (_) {}
+      try { _socketService.off('connected', _onConnected); } catch (_) {}
     }
 
-    if (SocketService.instance.isConnected) {
-      SocketService.instance.emit('request_existing_markers', {});
+    if (_socketService.isConnected) {
+      _socketService.emit('request_existing_markers', {});
     } else {
-      SocketService.instance.on('connected', _onConnected);
+      _socketService.on('connected', _onConnected);
+      _registeredCallbacks['connected'] = _onConnected;
     }
   }
 
   // Remover listeners de socket
   void _removeSocketListeners() {
-    _socketService.socket?.off('marker_added');
-    _socketService.socket?.off('marker_removed');
-    _socketService.socket?.off('marker_confirmed');
-    _socketService.socket?.off('existing_markers');
-    _socketService.socket?.off('marker_auto_removed');
+    // Usar la misma API centralizada del SocketService para remover listeners
+    try {
+      _registeredCallbacks.forEach((event, cb) {
+        try {
+          _socketService.off(event, cb);
+        } catch (e) {
+          debugPrint('Error removing callback for $event: $e');
+        }
+      });
+      _registeredCallbacks.clear();
+    } catch (e) {
+      debugPrint('Error al remover listeners de SocketService: $e');
+    }
   }
 
   // Iniciar timer para actualizar tiempos de estrellas cada minuto
@@ -1158,192 +1212,210 @@ class _MapaWidgetState extends State<MapaWidget> {
     return SizedBox(
       height: mapHeight,
       width: double.infinity,
-      child: Stack(
-        children: [
-          // Mapa ocupando todo el area del SizedBox
-          Positioned.fill(
-            child: FlutterMap(
-              mapController: _mapController,
-              options: MapOptions(
-                initialCenter: _currentCenter,
-                initialZoom: 13.0,
-                onTap: (tapPosition, point) {
-                  _onMapTap(point);
-                },
-              ),
-              children: [
-                TileLayer(
-                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                  userAgentPackageName: 'com.example.sala_chat',
-                ),
-                MarkerLayer(
-                  markers: [..._markers, ..._sharedMarkers],
-                ),
-              ],
-            ),
-          ),
-
-          // Overlay de carga inicial sobre el mapa
-          if (_isLoading)
+      child: Material(
+        elevation: 12,
+        color: Colors.transparent,
+        child: Stack(
+          children: [
+            // Mapa ocupando todo el area del SizedBox
             Positioned.fill(
-              child: Container(
-                color: Colors.white.withOpacity(0.8),
-                child: const Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
-                      ),
-                      SizedBox(height: 12),
-                      Text(
-                        'Obteniendo tu ubicación...',
-                        style: TextStyle(
-                          color: Colors.blue,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
+              child: FlutterMap(
+                mapController: _mapController,
+                options: MapOptions(
+                  initialCenter: _currentCenter,
+                  initialZoom: 13.0,
+                  onTap: (tapPosition, point) {
+                    _onMapTap(point);
+                  },
                 ),
-              ),
-            ),
-
-          // Floating left column with controls and report-type icons
-          Positioned(
-            top: 12,
-            left: 8,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.22),
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.12),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
+                children: [
+                  TileLayer(
+                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'com.example.sala_chat',
+                  ),
+                  MarkerLayer(
+                    markers: [..._markers, ..._sharedMarkers],
                   ),
                 ],
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Title row compact
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: const [
-                      Icon(Icons.map, color: Colors.white, size: 16),
-                      SizedBox(width: 4),
-                      Text(
-                        'Mapa',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
+            ),
+
+            // Pequeña banda de debug en la parte superior del mapa (visible para comprobar z-order)
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              child: IgnorePointer(
+                ignoring: true,
+                child: Container(
+                  height: 4,
+                  color: Colors.red.withOpacity(0.0), // opaco=0 para no molestar; cámbialo a 0.25 para debug
+                ),
+              ),
+            ),
+
+            // Overlay de carga inicial sobre el mapa
+            if (_isLoading)
+              Positioned.fill(
+                child: Container(
+                  color: Colors.white.withOpacity(0.8),
+                  child: const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-
-                  // Smaller vertical list of report-type icons
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: List.generate(TiposReporte.todos.length, (index) {
-                      final tipoInfo = TiposReporte.todos[index];
-                      final isSelected = _tipoSeleccionado == tipoInfo.tipo;
-
-                      return Container(
-                        margin: const EdgeInsets.symmetric(vertical: 3),
-                        child: GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              _tipoSeleccionado = isSelected ? null : tipoInfo.tipo;
-                            });
-                          },
-                          child: Container(
-                            width: 36,
-                            height: 36,
-                            decoration: BoxDecoration(
-                              color: isSelected ? tipoInfo.color : Colors.white.withOpacity(0.06),
-                              shape: BoxShape.circle,
-                              border: Border.all(color: tipoInfo.color, width: isSelected ? 2 : 1),
-                            ),
-                            child: Icon(
-                              tipoInfo.icono,
-                              color: isSelected ? Colors.white : tipoInfo.color,
-                              size: 14,
-                            ),
+                        SizedBox(height: 12),
+                        Text(
+                          'Obteniendo tu ubicación...',
+                          style: TextStyle(
+                            color: Colors.blue,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
-                      );
-                    }),
+                      ],
+                    ),
                   ),
+                ),
+              ),
 
-                  const SizedBox(height: 6),
-                  // Compact Telegram register button
-                  if (_currentUserId != null)
-                    TextButton.icon(
-                      onPressed: () {
-                        final botUsername = 'notificamapa_bot';
-                        final startParam = Uri.encodeComponent(_currentUserId!);
-                        final url = 'https://t.me/$botUsername?start=$startParam';
-                        showDialog(context: context, builder: (_) => AlertDialog(
-                          title: const Text('Registrar en Telegram'),
-                          content: Text('Abra este enlace en Telegram para completar el registro:\n\n$url'),
-                          actions: [
-                            TextButton(onPressed: () { Navigator.pop(context); }, child: const Text('Cerrar')),
-                            TextButton(onPressed: () {
-                              Navigator.pop(context);
-                              Clipboard.setData(ClipboardData(text: url));
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enlace copiado al portapapeles')));
-                            }, child: const Text('Copiar enlace')),
-                          ],
-                        ));
-                      },
-                      icon: const Icon(Icons.telegram, color: Colors.white, size: 16),
-                      label: const Text('Telegram', style: TextStyle(color: Colors.white, fontSize: 12)),
-                      style: TextButton.styleFrom(backgroundColor: Colors.blueAccent, padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6)),
+            // Floating left column with controls and report-type icons
+            Positioned(
+              top: 12,
+              left: 8,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.22),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.12),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Title row compact
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: const [
+                        Icon(Icons.map, color: Colors.white, size: 16),
+                        SizedBox(width: 4),
+                        Text(
+                          'Mapa',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+
+                    // Smaller vertical list of report-type icons
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: List.generate(TiposReporte.todos.length, (index) {
+                        final tipoInfo = TiposReporte.todos[index];
+                        final isSelected = _tipoSeleccionado == tipoInfo.tipo;
+
+                        return Container(
+                          margin: const EdgeInsets.symmetric(vertical: 3),
+                          child: GestureDetector(
+                            onTap: () {
+                              setState(() {
+                                _tipoSeleccionado = isSelected ? null : tipoInfo.tipo;
+                              });
+                            },
+                            child: Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: isSelected ? tipoInfo.color : Colors.white.withOpacity(0.06),
+                                shape: BoxShape.circle,
+                                border: Border.all(color: tipoInfo.color, width: isSelected ? 2 : 1),
+                              ),
+                              child: Icon(
+                                tipoInfo.icono,
+                                color: isSelected ? Colors.white : tipoInfo.color,
+                                size: 14,
+                              ),
+                            ),
+                          ),
+                        );
+                      }),
                     ),
 
-                  // Action buttons (ubicación y cerrar) compact
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      GestureDetector(
-                        onTap: _getCurrentLocation,
-                        child: Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: Colors.green.withOpacity(0.95),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: _isLoading
-                              ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                              : const Icon(Icons.my_location, color: Colors.white, size: 14),
-                        ),
+                    const SizedBox(height: 6),
+                    // Compact Telegram register button
+                    if (_currentUserId != null)
+                      TextButton.icon(
+                        onPressed: () {
+                          final botUsername = 'notificamapa_bot';
+                          final startParam = Uri.encodeComponent(_currentUserId!);
+                          final url = 'https://t.me/$botUsername?start=$startParam';
+                          showDialog(context: context, builder: (_) => AlertDialog(
+                            title: const Text('Registrar en Telegram'),
+                            content: Text('Abra este enlace en Telegram para completar el registro:\n\n$url'),
+                            actions: [
+                              TextButton(onPressed: () { Navigator.pop(context); }, child: const Text('Cerrar')),
+                              TextButton(onPressed: () {
+                                Navigator.pop(context);
+                                Clipboard.setData(ClipboardData(text: url));
+                                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enlace copiado al portapapeles')));
+                              }, child: const Text('Copiar enlace')),
+                            ],
+                          ));
+                        },
+                        icon: const Icon(Icons.telegram, color: Colors.white, size: 16),
+                        label: const Text('Telegram', style: TextStyle(color: Colors.white, fontSize: 12)),
+                        style: TextButton.styleFrom(backgroundColor: Colors.blueAccent, padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6)),
                       ),
-                      const SizedBox(width: 6),
-                      GestureDetector(
-                        onTap: widget.onClose,
-                        child: Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: Colors.red.withOpacity(0.95),
-                            borderRadius: BorderRadius.circular(8),
+
+                    // Action buttons (ubicación y cerrar) compact
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        GestureDetector(
+                          onTap: _getCurrentLocation,
+                          child: Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withOpacity(0.95),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: _isLoading
+                                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                : const Icon(Icons.my_location, color: Colors.white, size: 14),
                           ),
-                          child: const Icon(Icons.close, color: Colors.white, size: 14),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
+                        const SizedBox(width: 6),
+                        GestureDetector(
+                          onTap: widget.onClose,
+                          child: Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: Colors.red.withOpacity(0.95),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.close, color: Colors.white, size: 14),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

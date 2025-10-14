@@ -51,9 +51,25 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
     _loadCurrentUser();
     _cargaInicialFeed();
     _setupSocketConnection();
+    // Pedir ubicación al iniciar la aplicación (solo una vez) y guardarla
+    // No preguntar ubicación al iniciar para evitar diálogo molesto.
 
     if (kIsWeb) {
       _pushService = PushService(Endpoints.base);
+      // Registrar service worker y suscripción de push sin requerir
+      // que el usuario comparta su ubicación. Esto evita que se pida
+      // geolocalización automáticamente al abrir la pantalla.
+      _pushService!.getVapidPublicKey().then((key) {
+        if (key != null) {
+          _pushService!.registerServiceWorkerAndSubscribe(key, null).then((ok) {
+            if (ok) {
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Notificaciones activadas')));
+            } else {
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo activar notificaciones')));
+            }
+          });
+        }
+      });
     }
 
     // Listener para mensajes enviados desde el Service Worker (postMessage)
@@ -116,31 +132,22 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
       }
     });
 
-    // Enviar ubicación inicial si estamos compartiendo y estamos en web
+    // Enviar ubicación inicial y manejo periódico sólo si el usuario
+    // ha optado por compartir ubicación. Al mantener el registro de
+    // push fuera de este bloque evitamos que el navegador pida
+    // geolocalización automáticamente al abrir la pantalla.
     if (_compartirUbicacion && kIsWeb) {
       Future.delayed(const Duration(milliseconds: 500), () => _sendBrowserLocation());
       // Iniciar envío periódico
       _startPeriodicLocation();
-      // Intentar registrar push automáticamente al compartir ubicación
-      if (_pushService != null) {
-        _pushService!.getVapidPublicKey().then((key) {
-          if (key != null) {
-            _pushService!.registerServiceWorkerAndSubscribe(key, null).then((ok) {
-              if (ok) {
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Notificaciones activadas')));
-              } else {
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo activar notificaciones')));
-              }
-            });
-          }
-        });
-      }
     }
   }
   bool _mostrarBliz = false;
   // Para pruebas locales en web activamos envío de ubicación por defecto.
   // Puedes cambiar a false para exigir opt-in.
-  bool _compartirUbicacion = true;
+  bool _compartirUbicacion = false;
+  double? _savedLat;
+  double? _savedLng;
   PushService? _pushService;
   String? _currentUserName;
   String? _currentUserAvatar;
@@ -439,11 +446,23 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
     setState(() {
       _mostrarBliz = !_mostrarBliz;
     });
-    // Si abrimos el mapa y compartimos ubicación, enviar ubicación al servidor
-    if (_mostrarBliz && _compartirUbicacion && kIsWeb) {
+    // Al abrir el mapa no pedimos consentimiento ni mostramos diálogos.
+    // Si hay ubicación guardada enviaremos la ubicación al servidor.
+    if (_mostrarBliz && kIsWeb && _compartirUbicacion) {
       _sendBrowserLocation();
     }
+    // Solicitar marcadores existentes al backend cada vez que abrimos el mapa
+    // para asegurar que los marcadores persistidos se muestran al reabrir.
+    if (_mostrarBliz) {
+      // Emitir después del frame para que el MapaWidget ya haya inicializado sus listeners
+      // Nota: MapaWidget ya solicita existing_markers en su initState/post-frame.
+      // Evitamos emitir aquí para no duplicar y crear condiciones de carrera.
+    }
   }
+
+  // Consentimiento manual eliminado: no mostrar diálogos al abrir el mapa.
+
+  // Nota: la solicitud de ubicación al iniciar fue eliminada por ser molesta.
 
   void _cerrarBliz() {
     setState(() {
@@ -535,11 +554,16 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
                         itemBuilder: (context, index) {
                           final contenido = contenidoMultimedia[index];
                           return Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.only(bottom: 20),
                             child: ContenidoMultimediaWidget(
                               contenido: contenido,
                               onTextoTap: () => _navegarASalaComentarios(contenido, false),
                               onAudioTap: () => _navegarASalaComentarios(contenido, true),
+                              onDelete: (id) {
+                                setState(() {
+                                  contenidoMultimedia.removeWhere((c) => c.id == id);
+                                });
+                              },
                             ),
                           );
                         },
@@ -566,7 +590,13 @@ class _ChatPrincipalScreenState extends State<ChatPrincipalScreen> {
               duration: const Duration(milliseconds: 300),
               curve: Curves.easeInOut,
               height: _mostrarBliz ? MediaQuery.of(context).size.height * 0.9 : 0,
-              child: MapaWidget(onClose: _cerrarBliz),
+              // Sólo construir el widget del mapa cuando realmente se muestre.
+              child: _mostrarBliz ? MapaWidget(
+                onClose: _cerrarBliz,
+                allowAutoLocation: _compartirUbicacion,
+                initialLat: _savedLat,
+                initialLng: _savedLng,
+              ) : const SizedBox.shrink(),
             ),
           ),
         ],

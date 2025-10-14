@@ -31,7 +31,8 @@ const io = socketIo(server, {
     origin: true, // Permitir todos los orígenes para desarrollo
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
+    // Añadir X-Admin-Pin para que preflight permita la cabecera personalizada usada por el frontend
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "X-Admin-Pin"]
   }
 });
 
@@ -51,7 +52,8 @@ app.use((req, res, next) => {
   // Si el origen viene vacío (requests directas desde curl/servers), usamos '*'
   res.header('Access-Control-Allow-Origin', origin);
   res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
+  // Permitir la cabecera personalizada X-Admin-Pin para operaciones admin desde el frontend (web)
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, X-Admin-Pin');
   res.header('Access-Control-Allow-Credentials', 'true');
   // Forra OPTIONS preflight responses
   if (req.method === 'OPTIONS') {
@@ -87,7 +89,8 @@ app.options('*', (req, res) => {
   console.log('🚀 Preflight OPTIONS request recibido');
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Content-Length, X-Requested-With');
+  // Incluir X-Admin-Pin en los headers permitidos para preflight
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Content-Length, X-Requested-With, X-Admin-Pin');
   res.sendStatus(200);
 });
 
@@ -104,7 +107,7 @@ app.use('/uploads', (req, res, next) => {
   // Headers para archivos multimedia
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Range');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Range, X-Admin-Pin');
   res.header('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
   res.header('Accept-Ranges', 'bytes');
   

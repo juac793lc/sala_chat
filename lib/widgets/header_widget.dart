@@ -65,14 +65,19 @@ class HeaderWidget extends StatelessWidget {
                         children: [
                           const Icon(Icons.map, color: Colors.white, size: 20),
                           const SizedBox(width: 8),
-                          Text(
-                            titulo,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: .5,
+                          // Make the title flexible so it can truncate instead of overflowing
+                          Flexible(
+                            child: Text(
+                              titulo,
+                              textAlign: TextAlign.center,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: .5,
+                              ),
                             ),
                           ),
                         ],
@@ -82,8 +87,8 @@ class HeaderWidget extends StatelessWidget {
                   ),
                 ),
                 
-                // Espacio reservado a la derecha para equilibrio visual
-                const SizedBox(width: 50),
+                // Espacio reservado a la derecha reducido para evitar overflow
+                const SizedBox(width: 8),
               ],
             ),
           ),
